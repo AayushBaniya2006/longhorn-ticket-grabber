@@ -69,7 +69,8 @@
     "fetch-chromium": "cross-env PUPPETEER_CACHE_DIR=./puppeteer-cache puppeteer browsers install chrome",
     "package": "npm run build:all && npm run fetch-chromium && electron-builder",
     "package:mac": "npm run build:all && npm run fetch-chromium && electron-builder --mac",
-    "package:win": "npm run build:all && npm run fetch-chromium && electron-builder --win"
+    "package:win": "npm run build:all && npm run fetch-chromium && electron-builder --win",
+    "test:integration": "node scripts/test-queue-sim.js"
   },
   "eslintConfig": {
     "extends": [

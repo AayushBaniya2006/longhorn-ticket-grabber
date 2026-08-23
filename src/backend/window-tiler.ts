@@ -1,15 +1,30 @@
 // Cross-platform native window placement, wrapping node-window-manager.
 //
-// node-window-manager supports both Windows and macOS. On macOS it drives the Accessibility
-// API, so the app (or the terminal running it in dev) must be granted Accessibility permission
-// under System Settings -> Privacy & Security -> Accessibility. Without that grant these calls
-// silently no-op; every entry point below is defensive and returns/logs rather than throwing.
+// node-window-manager is a native addon. If it fails to load (missing/incompatible binding on an
+// unusual setup) we degrade gracefully: window management becomes a no-op and the app still runs.
+// On macOS it drives the Accessibility API, so the app (or the terminal running it in dev) must be
+// granted Accessibility permission under System Settings -> Privacy & Security -> Accessibility.
+// Without that grant these calls silently no-op. Every entry point below is defensive.
 
-import { windowManager, Window } from 'node-window-manager';
+import type { Window } from 'node-window-manager';
 import { Bounds, WorkArea, computeTileBounds } from './tiling';
 
 const isWindows = process.platform === 'win32';
 const isMac = process.platform === 'darwin';
+
+// Load the native module tolerantly — a broken binding must not crash app startup.
+let windowManager: typeof import('node-window-manager').windowManager | null = null;
+try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    windowManager = require('node-window-manager').windowManager;
+} catch (e) {
+    console.warn(`node-window-manager unavailable; window tiling disabled: ${(e as Error).message}`);
+}
+
+/** True when native window management loaded successfully. */
+export function windowManagementAvailable(): boolean {
+    return windowManager !== null;
+}
 
 function safeTitle(win: Window): string {
     try {
@@ -25,6 +40,7 @@ function safeTitle(win: Window): string {
  * match on a non-empty title only and fall back to the first window for the pid.
  */
 export function findWindowByPid(pid: number): Window | undefined {
+    if (!windowManager) return undefined;
     const filtered = windowManager.getWindows().filter((w) => w.processId === pid);
     const titled = filtered.filter((w) => safeTitle(w).length > 0);
 

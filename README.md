@@ -45,7 +45,17 @@ cd longhorn-ticket-grabber
 npm install
 npm run electron:serve      # run in dev
 npm test                    # run the test suite (23 tests)
+npm run test:integration    # headless end-to-end check against the queue simulator
 ```
+
+**Dev troubleshooting**
+- *"Something is already running on port 3000"* (the dev server exits and takes Electron with it):
+  free the port and re-run.
+  ```bash
+  lsof -ti:3000 | xargs kill -9    # macOS/Linux   (Windows: npx kill-port 3000)
+  npm run electron:serve
+  ```
+- *"Spawn" fails with "Could not find Chrome":* `npx puppeteer browsers install chrome`, then retry.
 
 Build installers yourself:
 

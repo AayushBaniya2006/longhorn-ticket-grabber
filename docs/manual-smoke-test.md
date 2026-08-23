@@ -61,3 +61,42 @@ elements in different windows and confirm:
 | Session Ready | `monitoring` |
 | Target element disappears | `triggered` → `processing` (if nothing else processing) |
 | Mark Processed | `processed` (next triggered session promoted) |
+
+---
+
+## Testing against something *like* the UT Austin servers
+
+You can't (and shouldn't) hammer the real ticketing queue to test. Here are three levels, safest first.
+
+### 1. Automated core test — no browser interaction needed
+```bash
+npm run test:integration
+```
+This drives a real headless Puppeteer browser (the same stealth stack the app uses) against the
+bundled **queue simulator** and polls the target selector exactly like `main.ts` does. It advances
+past the queue and asserts the app would fire `SESSION_TRIGGERED`. Fast, deterministic, CI-friendly.
+
+### 2. Realistic manual test — the queue simulator
+`dummy-page/queue-sim.html` mimics the evenue/Paciolan **waiting room**: it shows a "people ahead of
+you" counter and contains the *real* element the app watches (`#hlLinkToQueueTicket2Text`). When the
+queue clears, that element is removed — exactly what happens on the real site when you advance.
+
+1. Serve it: `npx serve dummy-page -l 5055`
+2. In the app, set **Queue URL** to `http://localhost:5055/queue-sim.html` and leave the **selector**
+   at its default (`#hlLinkToQueueTicket2Text`).
+3. Spawn a session → **Session Ready**. Watch the counter tick down; when it hits 0 (or click
+   **Advance to the front now**), the element disappears and the app flips to `triggered → processing`.
+4. Spawn several to watch parallel sessions clear at different times.
+
+This is the closest safe stand-in for a real drop — same selector, same disappear-to-trigger behavior.
+
+### 3. Live read-only check — the real site, without a drop
+Outside of an actual ticket release you can still confirm the app talks to the real server:
+
+1. Leave **Queue URL** at the default (`https://texaslonghorns.evenue.net/signin`).
+2. Spawn a session — confirm the stealth Chromium window opens, loads the real sign-in page, and the
+   session sits in `monitoring` (it won't trigger because there's no live queue element to disappear).
+
+This verifies spawning, navigation, stealth, and polling against the real host. **Be considerate:**
+use one or two sessions, don't run it repeatedly, and only run many parallel sessions during a real
+drop you're actually trying to buy in — respect the site's Terms of Service.

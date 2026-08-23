@@ -19,7 +19,9 @@ jobs:
         include:
           - os: macos-latest
             platform: mac
-          - os: windows-latest
+          # Pinned to 2022: windows-latest ships a VS version node-gyp can't parse,
+          # which breaks native compilation of node-window-manager.
+          - os: windows-2022
             platform: win
     runs-on: ${{ matrix.os }}
     steps:
@@ -57,6 +59,8 @@ jobs:
 
   release:
     needs: build
+    # Still publish whatever installers succeeded, even if one platform's build fails.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
