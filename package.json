@@ -1,12 +1,12 @@
 {
-  "name": "hornhub",
+  "name": "longhorn-ticket-grabber",
   "version": "0.1.0",
   "private": true,
   "description": "Desktop app that spawns and monitors parallel queue sessions to improve odds of getting Longhorn student tickets.",
   "author": "Aayush Baniya <thisisaayushbaniya@gmail.com>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AayushBaniya2006/hornhub.git"
+    "url": "https://github.com/AayushBaniya2006/longhorn-ticket-grabber.git"
   },
   "dependencies": {
     "@testing-library/jest-dom": "^5.17.0",
@@ -33,11 +33,18 @@
   "homepage": ".",
   "main": "dist/backend/main.js",
   "build": {
-    "appId": "com.aayushbaniya.hornhub",
-    "productName": "HornHub",
+    "appId": "com.aayushbaniya.longhornticketgrabber",
+    "productName": "Longhorn Ticket Grabber",
     "directories": {
       "output": "release"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "AayushBaniya2006",
+        "repo": "longhorn-ticket-grabber"
+      }
+    ],
     "files": [
       "dist/**/*",
       "build/**/*",

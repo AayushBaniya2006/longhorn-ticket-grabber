@@ -1,106 +1,90 @@
-# HornHub
+# 🤘 Longhorn Ticket Grabber
 
-A desktop app that spawns and monitors **parallel queue sessions** to improve your odds of
-getting University of Texas **Longhorn student tickets** on the evenue/paciolan queue system.
+Grab **UT Austin student football tickets** by running many queue sessions at once. When tickets
+drop, the ticketing site puts everyone in a waiting-room queue. This app opens several queue
+sessions in parallel and watches all of them — the moment one clears the queue, it jumps to the
+front of your screen so you can buy. More sessions = better odds.
 
-Each session is an isolated, stealth-configured Chromium browser (via Puppeteer) with its own
-profile, so you can log in to several queue sessions at once. HornHub watches each session for the
-moment it advances past the waiting room, then surfaces the "winning" session so you can complete
-the purchase by hand.
+> ⚠️ **Use responsibly.** This automates *your own* browser sessions in a public queue. It does not
+> bypass login, payment, or captcha — you still sign in and check out yourself. Check the ticketing
+> site's Terms of Service before using it, and don't share accounts you're not allowed to.
 
-> ⚠️ **Use responsibly.** This tool automates *your own* browser sessions against a ticketing queue.
-> Check the ticketing site's Terms of Service before use. It does not bypass payment, captcha, or
-> authentication — a human still logs in and completes each purchase.
+---
+
+## ⬇️ Download & use (no coding needed)
+
+1. **Go to the [Releases page](https://github.com/AayushBaniya2006/longhorn-ticket-grabber/releases/latest).**
+2. Download the file for your computer:
+   - **Mac:** the file ending in **`.dmg`**
+   - **Windows:** the file ending in **`.exe`**
+3. **Open it.** Because the app isn't paid-signed yet, your computer may warn you the first time:
+   - **Mac:** right-click (or Control-click) the app → **Open** → **Open** again. Then, so it can move
+     the browser windows for you, allow it under *System Settings → Privacy & Security →
+     **Accessibility*** when prompted.
+   - **Windows:** if you see "Windows protected your PC", click **More info → Run anyway**.
+4. **Use it:**
+   1. The **Queue URL** and **selector** boxes are pre-filled for the UT Longhorns student queue — for
+      most drops you can leave them as-is. (If a drop uses a different link, paste it into **Queue URL**.)
+   2. Click **1. Spawn New Session** → a browser window opens. **Log in** to the ticket site there.
+   3. Click **2. Session Ready & Tile**.
+   4. Repeat steps 2–3 to open as many parallel sessions as you want.
+   5. When one clears the queue it pops to the front and turns green — **buy your ticket**, then click
+      **Mark as Processed**. The next ready session takes its place automatically.
+
+That's the whole thing. No terminal, no accounts, no setup.
+
+---
+
+## 🧑‍💻 For developers
+
+Requires **Node 18+** (built on Node 22).
+
+```bash
+git clone https://github.com/AayushBaniya2006/longhorn-ticket-grabber.git
+cd longhorn-ticket-grabber
+npm install
+npm run electron:serve      # run in dev
+npm test                    # run the test suite (23 tests)
+```
+
+Build installers yourself:
+
+```bash
+npm run package:mac         # macOS dmg/zip  ->  release/
+npm run package:win         # Windows nsis   ->  release/
+```
+
+Releases are also built automatically by GitHub Actions (`.github/workflows/release.yml`) whenever a
+`v*` tag is pushed.
+
+See [docs/manual-smoke-test.md](docs/manual-smoke-test.md) for an end-to-end test using the bundled
+`dummy-page/` — no live ticketing site required.
 
 ## How it works
 
-1. **Spawn a session** — launches a stealth Puppeteer Chromium window pointed at the queue URL,
-   with its own persistent profile under Electron's `userData` directory.
-2. **Log in manually** in that window, then click **Session Ready** — HornHub tiles the window and
-   starts monitoring.
-3. **Monitoring** — HornHub polls the page every 500ms for a target CSS selector. When that element
-   *disappears* (i.e. the waiting-room/queue element is gone), the session is **triggered**.
-4. **Triggered → Processing** — the first triggered session is promoted to the foreground so you can
-   finish the checkout. Mark it **Processed** and the next triggered session takes its place.
-
-Repeat spawn/login to run many sessions in parallel; whichever clears the queue first wins.
+1. **Spawn** — launches a stealth Puppeteer Chromium window (its own profile) pointed at the queue URL.
+2. **Log in manually**, then **Session Ready** — the window is tiled and monitoring begins.
+3. **Monitoring** — polls the page every 500ms; when the waiting-room element (the CSS selector)
+   disappears, the session is **triggered**.
+4. **Triggered → Processing** — the first triggered session is brought to the foreground to finish
+   checkout. Mark it processed and the next one is promoted.
 
 ## Architecture
 
 ```
 src/
-  app/            # React renderer (the control-panel UI)
-    App.tsx
-  backend/        # Electron main process + IPC bridge
-    main.ts               # app lifecycle, session spawning, monitoring, window tiling
-    preload.ts            # contextBridge -> window.api
-    api-channels.ts       # typed IPC channel + payload definitions
-    renderer-connector.ts # main-side IPC helper
-    tiling.ts             # pure window-tiling math (unit tested)
-    session-queue.ts      # pure session-ordering/state logic (unit tested)
-    window-tiler.ts       # cross-platform window placement (macOS + Windows)
-  types/
-    bridge.d.ts   # augments window.api types for the renderer
-dummy-page/       # local test harness (a page whose element can be removed on demand)
+  app/App.tsx               # React control-panel UI
+  backend/
+    main.ts                 # Electron main: spawning, monitoring, window tiling
+    preload.ts              # contextBridge -> window.api
+    api-channels.ts         # typed IPC channels + payloads
+    renderer-connector.ts   # main-side IPC helper
+    tiling.ts               # pure window-tiling math (unit tested)
+    session-queue.ts        # pure session ordering/state (unit tested)
+    window-tiler.ts         # cross-platform (macOS + Windows) window placement
+dummy-page/                 # local test harness
+.github/workflows/          # CI: build & publish installers
 ```
-
-- **Renderer** is a Create React App + Tailwind UI.
-- **Main process** is compiled separately with `tsconfig.electron.json` into `dist/`.
-- IPC is fully typed end-to-end through `api-channels.ts`.
-
-## Prerequisites
-
-- **Node 18+** (developed on Node 22)
-- macOS or Windows
-- On **macOS**, automatic window tiling needs **Accessibility permission**: grant it under
-  *System Settings → Privacy & Security → Accessibility* for your terminal (in dev) or the packaged
-  HornHub app. Without it, sessions still spawn and monitor — you just position windows yourself.
-
-## Setup
-
-```bash
-npm install
-```
-
-## Run (development)
-
-```bash
-npm run electron:serve
-```
-
-This starts the CRA dev server, compiles the Electron main process, waits for the dev server, and
-launches Electron pointed at it.
-
-## Test
-
-```bash
-npm test              # watch mode
-npm test -- --watchAll=false   # single run (CI)
-```
-
-See [docs/manual-smoke-test.md](docs/manual-smoke-test.md) for an end-to-end check using the bundled
-`dummy-page/` (no live ticketing site required).
-
-## Package a distributable
-
-```bash
-npm run package        # current OS
-npm run package:mac    # macOS dmg/zip
-npm run package:win    # Windows nsis installer
-```
-
-Output is written to `release/`.
-
-## Available scripts
-
-| Script | What it does |
-| --- | --- |
-| `npm start` | CRA dev server only (renderer) |
-| `npm run build` | Production build of the renderer into `build/` |
-| `npm run electron:build` | Compile the Electron main process into `dist/` |
-| `npm run electron:serve` | Full dev experience (renderer + electron) |
-| `npm test` | Jest test runner |
-| `npm run package[:mac\|:win]` | Build a distributable with electron-builder |
 
 ## Credits
 

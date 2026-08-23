@@ -1,0 +1,71 @@
+name: Build & Release
+
+# Push a version tag (e.g. v0.1.0) to build installers for macOS + Windows and
+# publish them to the GitHub Releases page, where anyone can download them.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer + Electron main
+        run: npm run build:all
+
+      - name: Fetch bundled Chromium
+        run: npm run fetch-chromium
+
+      - name: Build installer
+        # --publish never: we attach artifacts in the release job below instead.
+        run: npx electron-builder --${{ matrix.platform }} --publish never
+        env:
+          # This app is not code-signed; don't let electron-builder try to sign on macOS.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.platform }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+          if-no-files-found: ignore
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          fail_on_unmatched_files: false

@@ -113,8 +113,9 @@ const App = () => {
   // --- Render Logic ---
   return (
     <div className="bg-gray-900 text-gray-100 h-screen p-6 flex flex-col font-sans overflow-hidden">
-      <header className="mb-6 shrink-0">
-        <img src="./hornhub-logo.png" alt="HornHub Logo" className="max-w-md mx-auto" />
+      <header className="mb-6 shrink-0 text-center">
+        <h1 className="text-3xl font-extrabold" style={{ color: '#BF5700' }}>🤘 Longhorn Ticket Grabber</h1>
+        <p className="text-gray-400 text-sm mt-1">Run parallel queue sessions to boost your odds on UT&nbsp;Austin student football tickets.</p>
       </header>
 
       {/* --- Controls --- */}
