@@ -26,6 +26,7 @@
     "extraMetadata": {
       "main": "dist/backend/main.js"
     },
+    "afterPack": "./scripts/adhoc-sign.js",
     "publish": [
       {
         "provider": "github",
