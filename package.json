@@ -46,15 +46,16 @@
     ],
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        "dmg"
       ],
-      "category": "public.app-category.utilities"
+      "category": "public.app-category.utilities",
+      "artifactName": "Longhorn-Ticket-Grabber-Mac.${ext}"
     },
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "artifactName": "Longhorn-Ticket-Grabber-Windows.${ext}"
     }
   },
   "scripts": {
