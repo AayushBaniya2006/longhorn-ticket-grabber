@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+        "noEmit": false,
+        "outDir": "./dist",
+        "target": "es5",
+        "module": "commonjs",
+        "downlevelIteration": true,
+        "rootDir": "./src",
+        "baseUrl": "./src",
+    },
+    "extends": "./tsconfig.json",
+    "exclude": [
+        "./src/app/*",
+        "./src/index.tsx",
+        "./src/types/*",
+    ]
+}

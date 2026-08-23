@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Remove Element Example</title>
+  <style>
+    #box {
+      width: 200px;
+      height: 100px;
+      background: steelblue;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="box">I’ll be removed from the DOM</div>
+  <button id="removeBtn">Remove me</button>
+  <button id="timerBtn">Remove me after 5 seconds</button>
+
+  <script>
+    const box = document.getElementById('box');
+    const btn = document.getElementById('removeBtn');
+    const timerBtn = document.getElementById('timerBtn');
+
+
+    btn.addEventListener('click', () => {
+      box.remove(); // Removes it entirely from the DOM
+    });
+
+    timerBtn.addEventListener('click', () => {
+      setTimeout(() => {
+        box.remove();
+      }, 5000);
+    });
+  </script>
+</body>
+</html>
