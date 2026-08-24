@@ -39,6 +39,9 @@ jobs:
         env:
           CI: 'true'
 
+      - name: Auto-login test against a fake UT site (${{ matrix.os }})
+        run: npm run test:autologin
+
       - name: Electron smoke test (launch + render on ${{ matrix.os }})
         run: npm run test:smoke
 

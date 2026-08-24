@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>UT EID Login (TEST CLONE)</title>
+  <style>
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; text-align: center; }
+    .banner { background: #b00020; color: #fff; padding: 6px; font-weight: 600; }
+    form { max-width: 320px; margin: 40px auto; text-align: left; }
+    label { display: block; margin-top: 12px; font-weight: 600; }
+    input { width: 100%; padding: 8px; box-sizing: border-box; }
+    button { margin-top: 16px; padding: 10px 18px; background: #333; color: #fff; border: 0;
+             border-radius: 6px; font-weight: 700; cursor: pointer; }
+    #status { color: #b00020; }
+  </style>
+</head>
+<body>
+  <div class="banner">⚠️ LOCAL TEST CLONE — mimics UT's Shibboleth EID login</div>
+  <h1>UT EID Login</h1>
+  <!-- Same field ids/name as UT's real Shibboleth login page, which the app targets. -->
+  <form id="loginForm">
+    <label for="username">UT EID</label>
+    <input id="username" name="username" type="text" autocomplete="off" />
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="off" />
+    <button name="_eventId_proceed" type="submit">Sign In</button>
+  </form>
+  <p id="status"></p>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var u = document.getElementById('username').value.trim();
+      var p = document.getElementById('password').value;
+      if (u && p) {
+        // Real UT would show Duo here; we skip it for the automated test and go to the queue.
+        location.href = 'queue.html';
+      } else {
+        document.getElementById('status').textContent = 'Please enter your UT EID and password.';
+      }
+    });
+  </script>
+</body>
+</html>
