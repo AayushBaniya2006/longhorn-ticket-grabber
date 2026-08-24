@@ -1,6 +1,6 @@
 import path from 'path';
 import fs from 'fs';
-import { app, BrowserWindow, screen } from 'electron';
+import { app, BrowserWindow, safeStorage, screen } from 'electron';
 import isDev from 'electron-is-dev';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
@@ -168,12 +168,105 @@ const startMonitoring = (sessionId: string): void => {
     monitorTimers.set(sessionId, timer);
 };
 
+// --- Credentials (saved locally per user, encrypted via the OS keychain) ---
+const credentialsPath = () => path.join(userDataPath, 'credentials.enc');
+
+function saveCredentials(eid: string, password: string): boolean {
+    try {
+        if (!safeStorage.isEncryptionAvailable()) return false;
+        const blob = safeStorage.encryptString(JSON.stringify({ eid, password }));
+        fs.writeFileSync(credentialsPath(), blob);
+        return true;
+    } catch (e) {
+        console.error('Failed to save credentials:', (e as Error).message);
+        return false;
+    }
+}
+
+function loadCredentials(): { eid: string; password: string } | null {
+    try {
+        const p = credentialsPath();
+        if (!fs.existsSync(p) || !safeStorage.isEncryptionAvailable()) return null;
+        const parsed = JSON.parse(safeStorage.decryptString(fs.readFileSync(p)));
+        return { eid: parsed.eid ?? '', password: parsed.password ?? '' };
+    } catch (e) {
+        console.error('Failed to load credentials:', (e as Error).message);
+        return null;
+    }
+}
+
+function clearCredentials(): void {
+    try {
+        const p = credentialsPath();
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+    } catch (e) {
+        console.error('Failed to clear credentials:', (e as Error).message);
+    }
+}
+
+// --- Auto-login (best effort; falls back to manual login on any failure) ---
+async function attemptAutoLogin(page: Page, eid: string, password: string): Promise<void> {
+    try {
+        // If we're on the evenue landing page, kick off the student SSO flow.
+        const studentClicked = await page
+            .evaluate(() => {
+                const el = Array.from(document.querySelectorAll('a,button')).find((e) =>
+                    /sign in as student/i.test(e.textContent || ''),
+                );
+                if (el) {
+                    (el as HTMLElement).click();
+                    return true;
+                }
+                return false;
+            })
+            .catch(() => false);
+
+        if (studentClicked) {
+            await page
+                .waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 })
+                .catch(() => undefined);
+        }
+
+        // Wait for the UT EID login form (standard Shibboleth selectors) and fill it.
+        const userSel = 'input#username, input[name="username"], input#uid';
+        const passSel = 'input#password, input[name="password"]';
+        const field = await page.waitForSelector(userSel, { timeout: 15000 }).catch(() => null);
+        if (!field) {
+            console.warn('Auto-login: UT EID login field not found; leaving the page for manual login.');
+            return;
+        }
+        await page.type(userSel, eid, { delay: 30 });
+        await page.type(passSel, password, { delay: 30 });
+
+        const submitted = await page
+            .evaluate(() => {
+                const btn = document.querySelector(
+                    'button[name="_eventId_proceed"], input[name="_eventId_proceed"], button[type="submit"], input[type="submit"], button#login-button',
+                ) as HTMLElement | null;
+                if (btn) {
+                    btn.click();
+                    return true;
+                }
+                return false;
+            })
+            .catch(() => false);
+        if (!submitted) await page.keyboard.press('Enter').catch(() => undefined);
+
+        // Duo 2FA now appears — the user approves it manually. Nothing else to automate.
+        console.log('Auto-login: submitted credentials; waiting for the user to approve Duo.');
+    } catch (e) {
+        console.warn('Auto-login failed; user can log in manually:', (e as Error).message);
+    }
+}
+
 // --- IPC handlers ---
 const registerHandlers = (connector: RendererConnector): void => {
     connector.addRequestHandler(RequestResponseChannels.SPAWN_SESSION, async (_event, data) => {
         try {
             const url = data.url;
             const selector = data.selector?.trim() || DEFAULT_SELECTOR;
+            const eid = data.eid?.trim() || '';
+            const password = data.password || '';
 
             const sessionId = `session-${Date.now()}`;
             const sessionUserDataPath = path.join(userDataPath, sessionId);
@@ -252,6 +345,11 @@ const registerHandlers = (connector: RendererConnector): void => {
 
             placeSessionOnMain(pid);
 
+            // Best-effort auto-login (non-blocking). Duo 2FA is still approved by the user.
+            if (eid && password) {
+                void attemptAutoLogin(page, eid, password);
+            }
+
             return { success: true, sessionId };
         } catch (error) {
             console.error('Failed to spawn session:', error);
@@ -284,6 +382,22 @@ const registerHandlers = (connector: RendererConnector): void => {
             console.error('Error during session ready/tiling:', error);
             return { success: false, error: (error as Error).message };
         }
+    });
+
+    connector.addRequestHandler(RequestResponseChannels.SAVE_CREDENTIALS, async (_event, data) => {
+        if (!data.remember) {
+            clearCredentials();
+            return { success: true };
+        }
+        const ok = saveCredentials(data.eid, data.password);
+        return ok
+            ? { success: true }
+            : { success: false, error: 'Secure storage is unavailable on this device.' };
+    });
+
+    connector.addRequestHandler(RequestResponseChannels.LOAD_CREDENTIALS, async () => {
+        const creds = loadCredentials();
+        return creds ? { ...creds, remembered: true } : { eid: '', password: '', remembered: false };
     });
 
     connector.addListener(RendererToMainChannels.MARK_SESSION_PROCESSED, async (_event, data) => {

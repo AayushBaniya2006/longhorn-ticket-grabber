@@ -37,6 +37,9 @@ const App = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const [currentProcessingSession, setCurrentProcessingSession] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [eid, setEid] = useState('');
+  const [password, setPassword] = useState('');
+  const [rememberCreds, setRememberCreds] = useState(true);
 
   // --- Effects ---
   // Listen for triggers from the main process.
@@ -66,6 +69,19 @@ const App = () => {
     return cleanup;
   }, []);
 
+  // Load any saved UT login on startup (stored encrypted on this device).
+  useEffect(() => {
+    if (!window.api) return;
+    (async () => {
+      const res = await window.api.request(window.api.channels.RequestResponseChannels.LOAD_CREDENTIALS, {});
+      if (res?.remembered) {
+        setEid(res.eid);
+        setPassword(res.password);
+        setRememberCreds(true);
+      }
+    })();
+  }, []);
+
   // --- Event Handlers ---
   const handleSpawnSession = async () => {
     if (currentActiveSession) {
@@ -79,7 +95,9 @@ const App = () => {
     setIsLoading(true);
     setError(null);
     setNotice(null);
-    const res = await window.api.request(window.api.channels.RequestResponseChannels.SPAWN_SESSION, { url, selector });
+    // Persist (or clear) the saved login for next time.
+    window.api.request(window.api.channels.RequestResponseChannels.SAVE_CREDENTIALS, { eid, password, remember: rememberCreds });
+    const res = await window.api.request(window.api.channels.RequestResponseChannels.SPAWN_SESSION, { url, selector, eid, password });
     if (res?.success) {
       setCurrentActiveSession(res.sessionId!);
       setSessions(prev => [...prev, { id: res.sessionId!, status: 'active', url }]);
@@ -143,6 +161,17 @@ const App = () => {
               <p className="text-xs text-gray-500 mt-1">Leave as-is unless UT changes their ticketing site. This is the waiting-room element that vanishes when you clear the queue.</p>
             </div>
           )}
+        </div>
+        <div className="border-t border-gray-700 pt-4">
+          <label className="block text-sm font-medium text-gray-300 mb-1">Your UT login <span className="text-gray-500 font-normal">(optional — auto-fills each session)</span></label>
+          <div className="flex space-x-3">
+            <input type="text" value={eid} onChange={e => setEid(e.target.value)} placeholder="UT EID" autoComplete="off" className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:ring-indigo-500 focus:border-indigo-500" />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" autoComplete="off" className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:ring-indigo-500 focus:border-indigo-500" />
+          </div>
+          <label className="flex items-center mt-2 text-xs text-gray-400 select-none">
+            <input type="checkbox" checked={rememberCreds} onChange={e => setRememberCreds(e.target.checked)} className="mr-2" />
+            Remember on this device (saved encrypted; never leaves your Mac). You still approve Duo on your phone.
+          </label>
         </div>
         <div className="flex space-x-4">
           <button onClick={handleSpawnSession} disabled={isLoading || !!currentActiveSession} className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-900 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-all duration-200 shadow-md">

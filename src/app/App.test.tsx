@@ -17,6 +17,8 @@ const channels = {
   RequestResponseChannels: {
     SPAWN_SESSION: 'SPAWN_SESSION',
     SESSION_READY: 'SESSION_READY',
+    SAVE_CREDENTIALS: 'SAVE_CREDENTIALS',
+    LOAD_CREDENTIALS: 'LOAD_CREDENTIALS',
   },
 };
 
@@ -67,10 +69,10 @@ describe('App', () => {
     fireEvent.click(screen.getByText(/Spawn New Session/i));
 
     await waitFor(() =>
-      expect(api.request).toHaveBeenCalledWith('SPAWN_SESSION', {
+      expect(api.request).toHaveBeenCalledWith('SPAWN_SESSION', expect.objectContaining({
         url: 'https://texaslonghorns.evenue.net/signin',
         selector: '#hlLinkToQueueTicket2Text',
-      }),
+      })),
     );
     expect(await screen.findByText('session-1')).toBeInTheDocument();
   });
@@ -84,10 +86,10 @@ describe('App', () => {
     fireEvent.click(screen.getByText(/Spawn New Session/i));
 
     await waitFor(() =>
-      expect(api.request).toHaveBeenCalledWith('SPAWN_SESSION', {
+      expect(api.request).toHaveBeenCalledWith('SPAWN_SESSION', expect.objectContaining({
         url: 'https://texaslonghorns.evenue.net/signin',
         selector: '#box',
-      }),
+      })),
     );
   });
 

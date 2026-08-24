@@ -36,7 +36,9 @@ export interface MainToRendererPayloads {
 
 export enum RequestResponseChannels {
     SPAWN_SESSION = "SPAWN_SESSION",
-    SESSION_READY = "SESSION_READY"
+    SESSION_READY = "SESSION_READY",
+    SAVE_CREDENTIALS = "SAVE_CREDENTIALS",
+    LOAD_CREDENTIALS = "LOAD_CREDENTIALS"
 }
 
 export interface RequestResponsePayloads {
@@ -44,6 +46,8 @@ export interface RequestResponsePayloads {
         REQUEST : {
             url: string;
             selector: string;
+            eid?: string;
+            password?: string;
         },
         RESPONSE: Promise<{
             success: boolean;
@@ -59,6 +63,25 @@ export interface RequestResponsePayloads {
             success: boolean;
             error?: string;
             warning?: string;
+        }>;
+    },
+    [RequestResponseChannels.SAVE_CREDENTIALS]: {
+        REQUEST: {
+            eid: string;
+            password: string;
+            remember: boolean;
+        },
+        RESPONSE: Promise<{
+            success: boolean;
+            error?: string;
+        }>;
+    },
+    [RequestResponseChannels.LOAD_CREDENTIALS]: {
+        REQUEST: {};
+        RESPONSE: Promise<{
+            eid: string;
+            password: string;
+            remembered: boolean;
         }>;
     }
 }
