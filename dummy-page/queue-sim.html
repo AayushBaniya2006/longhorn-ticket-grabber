@@ -73,6 +73,10 @@
 
     document.getElementById('advance').addEventListener('click', clearQueue);
 
+    // Deterministic auto-advance for the automated e2e test: remove the queue element after ?advanceMs=N.
+    const advanceMs = parseInt(params.get('advanceMs') || '', 10);
+    if (!isNaN(advanceMs)) setTimeout(clearQueue, advanceMs);
+
     const timer = setInterval(() => {
       if (!document.getElementById('auto').checked) return;
       pos = Math.max(0, pos - Math.ceil(Math.random() * 120));

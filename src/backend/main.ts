@@ -22,8 +22,9 @@ import {
 puppeteer.use(StealthPlugin());
 
 // In a packaged build, Chromium is bundled under resources/puppeteer-cache
-// (see the `extraResources` entry in package.json's `build` config).
-if (!isDev && process.resourcesPath) {
+// (see the `extraResources` entry in package.json's `build` config). Gate on app.isPackaged, not
+// isDev, so an unpackaged production run (e.g. the CI e2e) still uses Puppeteer's default cache.
+if (app.isPackaged && process.resourcesPath) {
     process.env.PUPPETEER_CACHE_DIR = path.join(process.resourcesPath, 'puppeteer-cache');
 }
 

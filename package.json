@@ -73,7 +73,8 @@
     "package:mac": "npm run build:all && npm run fetch-chromium && electron-builder --mac",
     "package:win": "npm run build:all && npm run fetch-chromium && electron-builder --win",
     "test:integration": "node scripts/test-queue-sim.js",
-    "test:smoke": "node tests/electron-smoke.js"
+    "test:smoke": "node tests/electron-smoke.js",
+    "test:e2e": "node tests/electron-e2e.js"
   },
   "eslintConfig": {
     "extends": [

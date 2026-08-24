@@ -41,3 +41,6 @@ jobs:
 
       - name: Electron smoke test (launch + render on ${{ matrix.os }})
         run: npm run test:smoke
+
+      - name: End-to-end test (spawn → monitor → trigger → process on ${{ matrix.os }})
+        run: npm run test:e2e
