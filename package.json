@@ -1,6 +1,6 @@
 {
   "name": "longhorn-ticket-grabber",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Desktop app that spawns and monitors parallel queue sessions to improve odds of getting Longhorn student tickets.",
   "author": "Aayush Baniya <thisisaayushbaniya@gmail.com>",

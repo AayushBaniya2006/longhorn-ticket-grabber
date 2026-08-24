@@ -55,11 +55,11 @@ describe('App', () => {
     api = installApi();
   });
 
-  it('renders the control panel with url and selector inputs', () => {
+  it('renders the control panel with the ticket link input', () => {
     render(<App />);
     expect(screen.getByText(/Spawn New Session/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Queue URL/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Disappearing Element Selector/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Ticket page link/i)).toBeInTheDocument();
+    expect(screen.getByText(/Advanced settings/i)).toBeInTheDocument();
   });
 
   it('spawns a session with the configured url and selector', async () => {
@@ -75,9 +75,10 @@ describe('App', () => {
     expect(await screen.findByText('session-1')).toBeInTheDocument();
   });
 
-  it('sends a custom selector when the field is edited', async () => {
+  it('sends a custom selector when the advanced field is edited', async () => {
     render(<App />);
-    fireEvent.change(screen.getByLabelText(/Disappearing Element Selector/i), {
+    fireEvent.click(screen.getByText(/Advanced settings/i));
+    fireEvent.change(screen.getByLabelText(/Queue element to watch/i), {
       target: { value: '#box' },
     });
     fireEvent.click(screen.getByText(/Spawn New Session/i));

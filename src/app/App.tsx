@@ -36,10 +36,12 @@ const App = () => {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [currentProcessingSession, setCurrentProcessingSession] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // --- Effects ---
   // Listen for triggers from the main process.
   useEffect(() => {
+    if (!window.api) return;
     const cleanup = window.api.receive(window.api.channels.MainToRendererChannels.SESSION_TRIGGERED, (data) => {
       const { sessionId } = data;
       console.log(`Trigger received for session: ${sessionId}`);
@@ -52,6 +54,7 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    if (!window.api) return;
     const cleanup = window.api.receive(window.api.channels.MainToRendererChannels.SESSION_PROCESSING, (data) => {
       const { sessionId } = data;
       console.log(`Processing started for session: ${sessionId}`);
@@ -67,6 +70,10 @@ const App = () => {
   const handleSpawnSession = async () => {
     if (currentActiveSession) {
       setError('A session is already active. Mark it as ready first.');
+      return;
+    }
+    if (!window.api) {
+      setError('App bridge failed to load — please reinstall the app.');
       return;
     }
     setIsLoading(true);
@@ -121,12 +128,21 @@ const App = () => {
       {/* --- Controls --- */}
       <div className="space-y-4 bg-gray-800 p-4 rounded-lg shadow-lg shrink-0">
         <div>
-          <label htmlFor="url" className="block text-sm font-medium text-gray-300 mb-1">Queue URL</label>
+          <label htmlFor="url" className="block text-sm font-medium text-gray-300 mb-1">Ticket page link</label>
           <input type="text" id="url" value={url} onChange={e => setUrl(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:ring-indigo-500 focus:border-indigo-500" />
+          <p className="text-xs text-gray-500 mt-1">Pre-filled for UT student football tickets — only change this if UT sent you a specific link.</p>
         </div>
         <div>
-          <label htmlFor="selector" className="block text-sm font-medium text-gray-300 mb-1">Disappearing Element Selector</label>
-          <input type="text" id="selector" value={selector} onChange={e => setSelector(e.target.value)} placeholder="e.g., #queue-spinner, .waiting-div" className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:ring-indigo-500 focus:border-indigo-500" />
+          <button type="button" onClick={() => setShowAdvanced(v => !v)} className="text-xs text-gray-400 hover:text-gray-200">
+            {showAdvanced ? '▾ Hide advanced settings' : '▸ Advanced settings (you usually don’t need this)'}
+          </button>
+          {showAdvanced && (
+            <div className="mt-2">
+              <label htmlFor="selector" className="block text-sm font-medium text-gray-300 mb-1">Queue element to watch (CSS selector)</label>
+              <input type="text" id="selector" value={selector} onChange={e => setSelector(e.target.value)} placeholder="e.g., #queue-spinner, .waiting-div" className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:ring-indigo-500 focus:border-indigo-500" />
+              <p className="text-xs text-gray-500 mt-1">Leave as-is unless UT changes their ticketing site. This is the waiting-room element that vanishes when you clear the queue.</p>
+            </div>
+          )}
         </div>
         <div className="flex space-x-4">
           <button onClick={handleSpawnSession} disabled={isLoading || !!currentActiveSession} className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-900 disabled:text-gray-500 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-all duration-200 shadow-md">

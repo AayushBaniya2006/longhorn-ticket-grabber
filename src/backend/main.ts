@@ -63,6 +63,9 @@ const createMainWindow = async () => {
             preload: path.join(__dirname, 'preload.js'),
             nodeIntegration: false,
             contextIsolation: true,
+            // Must stay false: the preload requires local modules (./api-channels), which a
+            // sandboxed preload cannot do — that would leave window.api undefined and blank the UI.
+            sandbox: false,
             webviewTag: true,
         },
     });
