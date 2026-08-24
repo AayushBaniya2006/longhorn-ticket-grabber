@@ -1,0 +1,43 @@
+name: CI
+
+# Runs on every push to main: builds the app and launches it on real macOS AND Windows
+# runners to prove it actually opens and renders (plus unit + integration tests).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+          - os: windows-2022
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer + Electron main
+        run: npm run build:all
+
+      - name: Unit + component tests
+        run: npx react-scripts test --watchAll=false
+        env:
+          CI: 'true'
+
+      - name: Electron smoke test (launch + render on ${{ matrix.os }})
+        run: npm run test:smoke

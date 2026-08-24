@@ -72,7 +72,8 @@
     "package": "npm run build:all && npm run fetch-chromium && electron-builder",
     "package:mac": "npm run build:all && npm run fetch-chromium && electron-builder --mac",
     "package:win": "npm run build:all && npm run fetch-chromium && electron-builder --win",
-    "test:integration": "node scripts/test-queue-sim.js"
+    "test:integration": "node scripts/test-queue-sim.js",
+    "test:smoke": "node tests/electron-smoke.js"
   },
   "eslintConfig": {
     "extends": [
@@ -104,6 +105,7 @@
     "cross-env": "^7.0.3",
     "electron": "^27.0.3",
     "electron-builder": "^24.13.3",
+    "playwright": "^1.62.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
