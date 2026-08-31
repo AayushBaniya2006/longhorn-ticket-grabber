@@ -1,6 +1,6 @@
 {
   "name": "longhorn-ticket-grabber",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Desktop app that spawns and monitors parallel queue sessions to improve odds of getting Longhorn student tickets.",
   "author": "Aayush Baniya <thisisaayushbaniya@gmail.com>",
@@ -48,13 +48,13 @@
         "dmg"
       ],
       "category": "public.app-category.utilities",
-      "artifactName": "Longhorn-Ticket-Grabber-Mac-AppleSilicon.${ext}"
+      "artifactName": "Longhorn-Ticket-Grabber-Mac-AppleSilicon-${version}.${ext}"
     },
     "win": {
       "target": [
         "nsis"
       ],
-      "artifactName": "Longhorn-Ticket-Grabber-Windows.${ext}"
+      "artifactName": "Longhorn-Ticket-Grabber-Windows-${version}.${ext}"
     }
   },
   "scripts": {

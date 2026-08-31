@@ -1,7 +1,9 @@
-import './puppeteer-cache'; // MUST be first: sets PUPPETEER_CACHE_DIR before puppeteer is loaded.
+// MUST be first: its import-time side effect sets PUPPETEER_CACHE_DIR before puppeteer is loaded,
+// and it exports the explicit-executable resolver we pass to puppeteer.launch().
+import { resolveBundledChromeExecutable } from './puppeteer-cache';
 import path from 'path';
 import fs from 'fs';
-import { app, BrowserWindow, safeStorage, screen } from 'electron';
+import { app, BrowserWindow, dialog, safeStorage, screen } from 'electron';
 import isDev from 'electron-is-dev';
 import puppeteer, { Browser, Page } from 'puppeteer';
 
@@ -298,8 +300,15 @@ const registerHandlers = (connector: RendererConnector): void => {
                 fs.mkdirSync(sessionUserDataPath, { recursive: true });
             }
 
+            // Resolve the bundled Chrome explicitly. In a packaged build this returns the absolute
+            // path to the Chrome we shipped inside the app, so puppeteer never falls back to the
+            // (absent) ~/.cache/puppeteer on an end-user's machine. Undefined in dev -> puppeteer default.
+            const bundledChrome = resolveBundledChromeExecutable();
+            console.log('[spawn] chrome executablePath =', bundledChrome || '(puppeteer default cache)');
+
             browser = await puppeteer.launch({
                 headless: false,
+                ...(bundledChrome ? { executablePath: bundledChrome } : {}),
                 userDataDir: sessionUserDataPath,
                 defaultViewport: null,
                 args: [
@@ -488,7 +497,23 @@ async function init() {
     registerHandlers(rendererConnector);
 }
 
-app.whenReady().then(init);
+// Never fail silently. Without this, any error thrown while the main process is starting up (a bad
+// native module, a throw in init, an unhandled rejection) just kills the process — on macOS the Dock
+// icon bounces once and vanishes with no message, which is impossible for a non-technical user to
+// report. Surface it as a dialog instead so we always know WHAT went wrong.
+function showStartupError(err: unknown) {
+    const message = err instanceof Error ? err.stack || err.message : String(err);
+    console.error('[fatal] uncaught error:', message);
+    try {
+        dialog.showErrorBox('Longhorn Ticket Grabber hit an error', message);
+    } catch {
+        // dialog can be unavailable extremely early; the console line above is the fallback.
+    }
+}
+process.on('uncaughtException', showStartupError);
+process.on('unhandledRejection', (reason) => showStartupError(reason));
+
+app.whenReady().then(init).catch(showStartupError);
 
 // On quit, close every spawned browser and wipe its profile so no authenticated session lingers.
 app.on('before-quit', () => {
