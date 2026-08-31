@@ -3,9 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { app, BrowserWindow, safeStorage, screen } from 'electron';
 import isDev from 'electron-is-dev';
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import { Browser, Page } from 'puppeteer';
+import puppeteer, { Browser, Page } from 'puppeteer';
 
 import { MainToRendererChannels, RendererToMainChannels, RequestResponseChannels } from './api-channels';
 import RendererConnector from './renderer-connector';
@@ -21,9 +19,9 @@ import {
 } from './window-tiler';
 import { attemptAutoLogin } from './auto-login';
 
-// Use the stealth plugin to make the spawned Chromium sessions look like ordinary browsers.
-// (PUPPETEER_CACHE_DIR for packaged builds is set in ./puppeteer-cache, imported first above.)
-puppeteer.use(StealthPlugin());
+// Plain puppeteer: these are real Chromium windows the user logs into and checks out from by hand,
+// so there is nothing to disguise. (PUPPETEER_CACHE_DIR for packaged builds is set in
+// ./puppeteer-cache, imported first above.)
 
 // --- Constants ---
 const DEFAULT_SELECTOR = '#hlLinkToQueueTicket2Text';
@@ -41,6 +39,8 @@ interface Session {
     // True once the queue selector has been seen present at least once (waiting room reached).
     // Its disappearance only counts as a trigger after the session is armed — see evaluateMonitorTick.
     armed: boolean;
+    // Consecutive polls the selector has been absent since arming; debounces transient blips.
+    absentStreak: number;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -169,19 +169,35 @@ const startMonitoring = (sessionId: string): void => {
         }
 
         try {
-            const elementPresent = await current.page.evaluate(
-                (sel: string) => document.querySelector(sel) !== null,
-                current.selector,
-            );
+            const probe = await current.page.evaluate((sel: string) => ({
+                present: document.querySelector(sel) !== null,
+                // A Chrome network-error page has no queue element either; don't mistake it for "your
+                // turn". Detect it (and about:blank) so a failed load can't count toward a trigger.
+                badPage:
+                    document.location.href === 'about:blank' ||
+                    document.location.href.startsWith('chrome-error://') ||
+                    document.getElementById('main-frame-error') !== null,
+            }), current.selector);
 
-            const { armed, trigger } = evaluateMonitorTick({
+            if (probe.badPage) {
+                // Error/blank page: not a real disappearance. Reset the streak and wait for recovery.
+                if (current.absentStreak !== 0) {
+                    current.absentStreak = 0;
+                    sessions.set(sessionId, current);
+                }
+                return;
+            }
+
+            const { armed, absentStreak, trigger } = evaluateMonitorTick({
                 armed: current.armed,
-                elementPresent,
+                elementPresent: probe.present,
                 status: current.status,
+                absentStreak: current.absentStreak,
             });
 
-            if (armed !== current.armed) {
+            if (armed !== current.armed || absentStreak !== current.absentStreak) {
                 current.armed = armed;
+                current.absentStreak = absentStreak;
                 sessions.set(sessionId, current);
             }
 
@@ -330,12 +346,10 @@ const registerHandlers = (connector: RendererConnector): void => {
             const pages = await browser.pages();
             const page = pages[0] || (await browser.newPage());
 
-            await page.setUserAgent(
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36',
-            );
+            // No user-agent spoofing: the window presents as the real Chromium it is. Only an honest
+            // language preference is set.
             await page.setExtraHTTPHeaders({
                 'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
             });
 
             await page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -349,7 +363,7 @@ const registerHandlers = (connector: RendererConnector): void => {
             const pid = browserProcess.pid;
 
             activeSessionId = sessionId;
-            sessions.set(sessionId, { id: sessionId, browser, page, pid, selector, status: 'active', armed: false });
+            sessions.set(sessionId, { id: sessionId, browser, page, pid, selector, status: 'active', armed: false, absentStreak: 0 });
 
             // Clean up if the user closes the Chromium window or it crashes: stop monitoring, drop the
             // session, wipe its (auth-cookie-bearing) profile, and let the next queued session through

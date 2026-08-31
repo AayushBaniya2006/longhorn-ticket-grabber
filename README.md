@@ -92,7 +92,9 @@ See [docs/manual-smoke-test.md](docs/manual-smoke-test.md) for an end-to-end tes
 
 ## How it works
 
-1. **Spawn** — launches a stealth Puppeteer Chromium window (its own profile) pointed at the queue URL.
+1. **Spawn** — launches a real Puppeteer Chromium window (its own profile) pointed at the queue URL.
+   No stealth/anti-detection plugin and no spoofed user agent — the window presents as the ordinary
+   browser it is, and you clear any human check, log in, and check out by hand.
 2. **Log in manually**, then **Session Ready** — the window is tiled and monitoring begins.
 3. **Monitoring** — polls the page every 500ms with an *arm-then-trigger* rule: the waiting-room
    element (the CSS selector) must be seen **present at least once** (you've actually reached the

@@ -1,7 +1,7 @@
 /* eslint-disable */
 // Tests the app's REAL auto-login logic against a realistic fake UT site
 // (signin → "Sign In as Student" → EID login form → waiting room), using the same
-// puppeteer-extra + stealth stack the app uses. Verifies auto-login clicks through the student
+// plain puppeteer stack the app uses. Verifies auto-login clicks through the student
 // SSO flow, fills the EID form, submits, and lands in the queue. Headless; runs locally and in CI.
 //
 // Requires the Electron main to be compiled first (npm run electron:build), since it imports the
@@ -10,11 +10,8 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const puppeteer = require('puppeteer');
 const { attemptAutoLogin } = require('../dist/backend/auto-login.js');
-
-puppeteer.use(StealthPlugin());
 
 function serveFakeUt() {
   const base = path.join(__dirname, '..', 'dummy-page', 'fake-ut');

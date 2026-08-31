@@ -11,14 +11,11 @@
 //   t~2s   selector APPEARS     (you reached the waiting room)                     -> arm, must NOT trigger
 //   t~4s   selector DISAPPEARS  (queue cleared — your turn)                        -> MUST trigger
 //
-// Uses the same puppeteer-extra + stealth stack the app uses. Requires `npm run electron:build` first.
+// Uses the same plain puppeteer stack the app uses. Requires `npm run electron:build` first.
 
 const http = require('http');
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const puppeteer = require('puppeteer');
 const { evaluateMonitorTick } = require('../dist/backend/session-queue.js');
-
-puppeteer.use(StealthPlugin());
 
 const SELECTOR = '#hlLinkToQueueTicket2Text';
 const POLL_MS = 500; // matches main.ts POLL_INTERVAL_MS
@@ -54,7 +51,7 @@ function serve() {
   const port = server.address().port;
   const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox', '--disable-setuid-sandbox'] });
 
-  let armed = false;
+  let tick = { armed: false, absentStreak: 0, trigger: false };
   let triggered = false;
   let triggeredAtMs = null;
   let sawElementBeforeTrigger = false;
@@ -64,19 +61,19 @@ function serve() {
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
     const start = Date.now();
 
-    // Drive the app's REAL monitor decision on a 500ms loop, exactly like startMonitoring in main.ts.
+    // Drive the app's REAL monitor decision on a 500ms loop, threading armed + absentStreak between
+    // polls exactly like startMonitoring in main.ts.
     while (Date.now() - start < 8000 && !triggered) {
       const elementPresent = await page.evaluate((sel) => document.querySelector(sel) !== null, SELECTOR);
       if (elementPresent) sawElementBeforeTrigger = true;
 
-      // Guard: the naive old rule (trigger on any absence) would have fired at t=0. Assert it didn't.
-      if (!armed && !elementPresent && Date.now() - start < 1500) {
-        // still in the "sign-in" window and correctly NOT triggering
-      }
-
-      const res = evaluateMonitorTick({ armed, elementPresent, status: 'monitoring' });
-      armed = res.armed;
-      if (res.trigger) {
+      tick = evaluateMonitorTick({
+        armed: tick.armed,
+        elementPresent,
+        status: 'monitoring',
+        absentStreak: tick.absentStreak,
+      });
+      if (tick.trigger) {
         triggered = true;
         triggeredAtMs = Date.now() - start;
       }

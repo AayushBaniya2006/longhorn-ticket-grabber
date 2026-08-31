@@ -1,4 +1,4 @@
-// MUST be imported before puppeteer / puppeteer-extra.
+// MUST be imported before puppeteer.
 //
 // Puppeteer reads PUPPETEER_CACHE_DIR and freezes its configuration at module-load time. If we set
 // the env var after puppeteer has already been required, the assignment is a no-op: a packaged build

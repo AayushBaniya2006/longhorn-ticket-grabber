@@ -4,7 +4,7 @@
 // Everything else in this repo tests our code against pages WE wrote (dummy-page/*.html), which all
 // hard-code the very selector our monitor looks for. That is circular: it proves our code matches our
 // mock, not that it matches UT's real portal. This script points the SAME production stack
-// (puppeteer-extra + stealth + the app's real auto-login) at a REAL url and reports whether our
+// (plain puppeteer + the app's real auto-login) at a REAL url and reports whether our
 // assumptions actually hold against the genuine DOM — the only thing that matters on drop day.
 //
 // Usage:
@@ -23,9 +23,7 @@
 //   5. With --watch, it polls exactly like the app and prints the moment the selector disappears,
 //      so you can confirm "element disappears == my turn" on the real system.
 
-const puppeteer = require('puppeteer-extra');
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-puppeteer.use(StealthPlugin());
+const puppeteer = require('puppeteer');
 
 let attemptAutoLogin;
 try {
@@ -71,9 +69,6 @@ const now = () => new Date().toISOString().slice(11, 19);
 
   try {
     const page = (await browser.pages())[0] || (await browser.newPage());
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36',
-    );
 
     line(`[${now()}] navigating…`);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });

@@ -72,7 +72,7 @@ You can't (and shouldn't) hammer the real ticketing queue to test. Here are thre
 ```bash
 npm run test:integration
 ```
-This drives a real headless Puppeteer browser (the same stealth stack the app uses) against the
+This drives a real headless Puppeteer browser (the same plain puppeteer stack the app uses) against the
 bundled **queue simulator** and polls the target selector exactly like `main.ts` does. It advances
 past the queue and asserts the app would fire `SESSION_TRIGGERED`. Fast, deterministic, CI-friendly.
 
@@ -94,9 +94,9 @@ This is the closest safe stand-in for a real drop — same selector, same disapp
 Outside of an actual ticket release you can still confirm the app talks to the real server:
 
 1. Leave **Queue URL** at the default (`https://texaslonghorns.evenue.net/signin`).
-2. Spawn a session — confirm the stealth Chromium window opens, loads the real sign-in page, and the
+2. Spawn a session — confirm the Chromium window opens, loads the real sign-in page, and the
    session sits in `monitoring` (it won't trigger because there's no live queue element to disappear).
 
-This verifies spawning, navigation, stealth, and polling against the real host. **Be considerate:**
+This verifies spawning, navigation, and polling against the real host. **Be considerate:**
 use one or two sessions, don't run it repeatedly, and only run many parallel sessions during a real
 drop you're actually trying to buy in — respect the site's Terms of Service.

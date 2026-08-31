@@ -11,9 +11,7 @@
   "dependencies": {
     "electron-is-dev": "^2.0.0",
     "node-window-manager": "^2.2.4",
-    "puppeteer": "^24.19.0",
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2"
+    "puppeteer": "^24.19.0"
   },
   "homepage": ".",
   "main": "dist/backend/main.js",
@@ -78,7 +76,8 @@
     "test:smoke": "node tests/electron-smoke.js",
     "test:e2e": "node tests/electron-e2e.js",
     "test:e2e-multi": "node tests/electron-e2e-multi.js",
-    "preflight": "node scripts/preflight-live.js"
+    "preflight": "node scripts/preflight-live.js",
+    "preflight:two": "node scripts/preflight-two-profile.js"
   },
   "eslintConfig": {
     "extends": [
