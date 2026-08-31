@@ -46,8 +46,11 @@ function serveFakeUt() {
     const page = (await browser.pages())[0] || (await browser.newPage());
     await page.goto(`http://127.0.0.1:${port}/signin.html`, { waitUntil: 'domcontentloaded' });
 
-    // Run the app's actual auto-login logic against the fake UT flow.
-    await attemptAutoLogin(page, 'ab12345', 'test-password');
+    // Run the app's actual auto-login logic against the fake UT flow. The fake site is served on
+    // 127.0.0.1, which the production host guard (isTrustedUtLoginHost) correctly rejects — so this
+    // test explicitly opts into trusting the local host. The guard itself is covered by the unit
+    // test in src/backend/auto-login.test.ts.
+    await attemptAutoLogin(page, 'ab12345', 'test-password', { trustHost: () => true });
 
     // A successful login redirects to the waiting room with the queue element present.
     await page.waitForFunction(
