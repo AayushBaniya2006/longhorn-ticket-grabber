@@ -104,10 +104,17 @@ const App = () => {
     // spawning. Guarded so a save failure surfaces as a notice instead of an unhandled rejection.
     const hasCredsToSave = eid.trim() !== '' || password !== '';
     if (!rememberCreds || hasCredsToSave) {
-      window.api
-        .request(window.api.channels.RequestResponseChannels.SAVE_CREDENTIALS, { eid, password, remember: rememberCreds })
-        .then((saveRes) => { if (rememberCreds && saveRes && !saveRes.success && saveRes.error) setNotice(saveRes.error); })
-        .catch(() => setNotice('Could not save your login on this device; you can still continue.'));
+      // Save concurrently — never block the spawn on the keychain. Awaited inside its own async
+      // block (so the nested-Promise response type unwraps) and guarded so a failure shows a notice
+      // instead of an unhandled rejection or a stuck spawn.
+      void (async () => {
+        try {
+          const saveRes = await window.api.request(window.api.channels.RequestResponseChannels.SAVE_CREDENTIALS, { eid, password, remember: rememberCreds });
+          if (rememberCreds && saveRes && !saveRes.success && saveRes.error) setNotice(saveRes.error);
+        } catch {
+          setNotice('Could not save your login on this device; you can still continue.');
+        }
+      })();
     }
     const res = await window.api.request(window.api.channels.RequestResponseChannels.SPAWN_SESSION, { url, selector, eid, password });
     if (res?.success) {
