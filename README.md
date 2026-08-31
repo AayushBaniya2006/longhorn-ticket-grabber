@@ -44,9 +44,27 @@ git clone https://github.com/AayushBaniya2006/longhorn-ticket-grabber.git
 cd longhorn-ticket-grabber
 npm install
 npm run electron:serve      # run in dev
-npm test                    # run the test suite (23 tests)
-npm run test:integration    # headless end-to-end check against the queue simulator
+npm test                    # unit + component tests (31 tests)
+npm run test:integration    # headless monitor/trigger check against the queue simulator
+npm run test:arming         # regression: does NOT false-trigger when the queue element is absent at start
+npm run test:autologin      # auto-login flow against a local fake UT site
+npm run test:smoke          # launches Electron and checks the UI renders with a working bridge
+npm run test:e2e            # full spawn → monitor → trigger → process against the queue simulator
 ```
+
+**Test it against the real site (recommended before a real drop).** The tests above use local
+pages, so they can't prove the selector or login still match UT's live portal. `preflight` points the
+real app stack at a real URL and reports whether our assumptions hold:
+
+```bash
+npm run electron:build
+npm run preflight -- "https://texaslonghorns.evenue.net/signin" --eid <YOUR_EID> --password <YOUR_PW> --watch 900
+```
+
+It opens a visible browser (you approve Duo by hand) and reports: did auto-login reach the real EID
+form, is the `#hlLinkToQueueTicket2Text` selector actually present on the real waiting room, and — with
+`--watch` — does it disappear when the queue clears. Credentials can also come from `UT_EID` /
+`UT_PASSWORD`.
 
 **Dev troubleshooting**
 - *"Something is already running on port 3000"* (the dev server exits and takes Electron with it):
@@ -74,8 +92,11 @@ See [docs/manual-smoke-test.md](docs/manual-smoke-test.md) for an end-to-end tes
 
 1. **Spawn** — launches a stealth Puppeteer Chromium window (its own profile) pointed at the queue URL.
 2. **Log in manually**, then **Session Ready** — the window is tiled and monitoring begins.
-3. **Monitoring** — polls the page every 500ms; when the waiting-room element (the CSS selector)
-   disappears, the session is **triggered**.
+3. **Monitoring** — polls the page every 500ms with an *arm-then-trigger* rule: the waiting-room
+   element (the CSS selector) must be seen **present at least once** (you've actually reached the
+   queue) before its later disappearance counts as **triggered**. This is what prevents a false
+   trigger while the page is still on sign-in / EID login / Duo, where the element is legitimately
+   absent.
 4. **Triggered → Processing** — the first triggered session is brought to the foreground to finish
    checkout. Mark it processed and the next one is promoted.
 

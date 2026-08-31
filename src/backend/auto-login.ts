@@ -5,7 +5,30 @@
 // (fill #username / #password, submit) -> Duo (the user approves manually; not automated here).
 import { Page } from 'puppeteer';
 
-export async function attemptAutoLogin(page: Page, eid: string, password: string): Promise<void> {
+/**
+ * True only for genuine UT single-sign-on hosts (login.utexas.edu, enterprise.login.utexas.edu, …).
+ * The spawn URL is arbitrary user input, so credentials must never be typed on any other host.
+ */
+export function isTrustedUtLoginHost(hostname: string): boolean {
+    const h = (hostname || '').toLowerCase();
+    return h === 'utexas.edu' || h.endsWith('.utexas.edu');
+}
+
+export interface AutoLoginOptions {
+    /**
+     * Predicate deciding whether the current page's host may receive the EID + password.
+     * Defaults to UT's SSO domains; the local fake-UT test overrides it to trust 127.0.0.1.
+     */
+    trustHost?: (hostname: string) => boolean;
+}
+
+export async function attemptAutoLogin(
+    page: Page,
+    eid: string,
+    password: string,
+    opts: AutoLoginOptions = {},
+): Promise<void> {
+    const trustHost = opts.trustHost ?? isTrustedUtLoginHost;
     try {
         // If we're on the evenue landing page, kick off the student SSO flow.
         const studentClicked = await page
@@ -35,6 +58,23 @@ export async function attemptAutoLogin(page: Page, eid: string, password: string
             console.warn('Auto-login: UT EID login field not found; leaving the page for manual login.');
             return;
         }
+
+        // SECURITY: only ever type the real EID + password on a trusted UT SSO host. Without this,
+        // a mistyped or hostile spawn URL that happens to expose a username/password field would
+        // receive the user's UT credentials.
+        let host = '';
+        try {
+            host = new URL(page.url()).hostname;
+        } catch {
+            host = '';
+        }
+        if (!trustHost(host)) {
+            console.warn(
+                `Auto-login: refusing to enter credentials on untrusted host "${host}"; leaving the page for manual login.`,
+            );
+            return;
+        }
+
         await page.type(userSel, eid, { delay: 30 });
         await page.type(passSel, password, { delay: 30 });
 

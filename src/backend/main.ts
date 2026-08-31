@@ -9,7 +9,7 @@ import { Browser, Page } from 'puppeteer';
 import { MainToRendererChannels, RendererToMainChannels, RequestResponseChannels } from './api-channels';
 import RendererConnector from './renderer-connector';
 import { computeMainSplit } from './tiling';
-import { selectNextToProcess } from './session-queue';
+import { selectNextToProcess, evaluateMonitorTick } from './session-queue';
 import {
     minimizeWindow,
     requiresAccessibilityGrant,
@@ -42,6 +42,9 @@ interface Session {
     pid: number;
     selector: string;
     status: 'active' | 'monitoring' | 'triggered' | 'processing' | 'processed';
+    // True once the queue selector has been seen present at least once (waiting room reached).
+    // Its disappearance only counts as a trigger after the session is armed — see evaluateMonitorTick.
+    armed: boolean;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -146,20 +149,28 @@ const startMonitoring = (sessionId: string): void => {
         }
 
         try {
-            const elementExists = await current.page.evaluate(
+            const elementPresent = await current.page.evaluate(
                 (sel: string) => document.querySelector(sel) !== null,
                 current.selector,
             );
 
-            if (!elementExists) {
+            const { armed, trigger } = evaluateMonitorTick({
+                armed: current.armed,
+                elementPresent,
+                status: current.status,
+            });
+
+            if (armed !== current.armed) {
+                current.armed = armed;
+                sessions.set(sessionId, current);
+            }
+
+            if (trigger) {
                 clearMonitor(sessionId);
-                // Re-check status to avoid a double trigger.
-                if (current.status === 'monitoring') {
-                    current.status = 'triggered';
-                    sessions.set(sessionId, current);
-                    rendererConnector?.sendToRenderer(MainToRendererChannels.SESSION_TRIGGERED, { sessionId });
-                    promoteNextSession();
-                }
+                current.status = 'triggered';
+                sessions.set(sessionId, current);
+                rendererConnector?.sendToRenderer(MainToRendererChannels.SESSION_TRIGGERED, { sessionId });
+                promoteNextSession();
             }
         } catch (e) {
             console.warn(`Could not check element in session ${sessionId}; page may be navigating or closed.`);
@@ -288,7 +299,7 @@ const registerHandlers = (connector: RendererConnector): void => {
             const pid = browserProcess.pid;
 
             activeSessionId = sessionId;
-            sessions.set(sessionId, { id: sessionId, browser, page, pid, selector, status: 'active' });
+            sessions.set(sessionId, { id: sessionId, browser, page, pid, selector, status: 'active', armed: false });
 
             placeSessionOnMain(pid);
 

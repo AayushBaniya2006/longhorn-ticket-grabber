@@ -39,6 +39,9 @@ jobs:
         env:
           CI: 'true'
 
+      - name: Arm-then-trigger regression (no false trigger when queue element is absent)
+        run: npm run test:arming
+
       - name: Auto-login test against a fake UT site (${{ matrix.os }})
         run: npm run test:autologin
 
