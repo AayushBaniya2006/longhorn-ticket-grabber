@@ -50,7 +50,7 @@
         "dmg"
       ],
       "category": "public.app-category.utilities",
-      "artifactName": "Longhorn-Ticket-Grabber-Mac.${ext}"
+      "artifactName": "Longhorn-Ticket-Grabber-Mac-AppleSilicon.${ext}"
     },
     "win": {
       "target": [
@@ -77,6 +77,7 @@
     "test:autologin": "node scripts/test-auto-login.js",
     "test:smoke": "node tests/electron-smoke.js",
     "test:e2e": "node tests/electron-e2e.js",
+    "test:e2e-multi": "node tests/electron-e2e-multi.js",
     "preflight": "node scripts/preflight-live.js"
   },
   "eslintConfig": {

@@ -59,8 +59,9 @@ jobs:
 
   release:
     needs: build
-    # Still publish whatever installers succeeded, even if one platform's build fails.
-    if: ${{ !cancelled() }}
+    # Only publish when BOTH platform builds succeeded, so a red build can't ship a partial or empty
+    # release for the tag.
+    if: ${{ success() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -72,4 +73,5 @@ jobs:
         with:
           files: artifacts/**/*
           generate_release_notes: true
-          fail_on_unmatched_files: false
+          # Fail loudly if the expected installers aren't there, rather than publishing an empty release.
+          fail_on_unmatched_files: true

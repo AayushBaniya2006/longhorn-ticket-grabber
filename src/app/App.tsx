@@ -40,6 +40,7 @@ const App = () => {
   const [eid, setEid] = useState('');
   const [password, setPassword] = useState('');
   const [rememberCreds, setRememberCreds] = useState(true);
+  const [hasSavedPassword, setHasSavedPassword] = useState(false);
 
   // --- Effects ---
   // Listen for triggers from the main process.
@@ -76,7 +77,9 @@ const App = () => {
       const res = await window.api.request(window.api.channels.RequestResponseChannels.LOAD_CREDENTIALS, {});
       if (res?.remembered) {
         setEid(res.eid);
-        setPassword(res.password);
+        // The password is never sent to the renderer; we only know one is stored. Leave the field
+        // blank and show a "saved" placeholder — the main process fills it in on spawn.
+        setHasSavedPassword(!!res.hasPassword);
         setRememberCreds(true);
       }
     })();
@@ -95,8 +98,14 @@ const App = () => {
     setIsLoading(true);
     setError(null);
     setNotice(null);
-    // Persist (or clear) the saved login for next time.
-    window.api.request(window.api.channels.RequestResponseChannels.SAVE_CREDENTIALS, { eid, password, remember: rememberCreds });
+    // Persist (or clear) the saved login for next time. Awaited + guarded so a failure surfaces to
+    // the user instead of becoming an unhandled promise rejection.
+    try {
+      const saveRes = await window.api.request(window.api.channels.RequestResponseChannels.SAVE_CREDENTIALS, { eid, password, remember: rememberCreds });
+      if (rememberCreds && saveRes && !saveRes.success && saveRes.error) setNotice(saveRes.error);
+    } catch {
+      setNotice('Could not save your login on this device; you can still continue.');
+    }
     const res = await window.api.request(window.api.channels.RequestResponseChannels.SPAWN_SESSION, { url, selector, eid, password });
     if (res?.success) {
       setCurrentActiveSession(res.sessionId!);
@@ -166,7 +175,7 @@ const App = () => {
           <label className="block text-sm font-medium text-gray-300 mb-1">Your UT login <span className="text-gray-500 font-normal">(optional — auto-fills each session)</span></label>
           <div className="flex space-x-3">
             <input type="text" value={eid} onChange={e => setEid(e.target.value)} placeholder="UT EID" autoComplete="off" className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:ring-indigo-500 focus:border-indigo-500" />
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" autoComplete="off" className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:ring-indigo-500 focus:border-indigo-500" />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder={hasSavedPassword && !password ? 'Using saved password' : 'Password'} autoComplete="off" className="flex-1 bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white focus:ring-indigo-500 focus:border-indigo-500" />
           </div>
           <label className="flex items-center mt-2 text-xs text-gray-400 select-none">
             <input type="checkbox" checked={rememberCreds} onChange={e => setRememberCreds(e.target.checked)} className="mr-2" />

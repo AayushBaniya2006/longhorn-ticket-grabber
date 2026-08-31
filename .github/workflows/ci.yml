@@ -50,3 +50,6 @@ jobs:
 
       - name: End-to-end test (spawn → monitor → trigger → process on ${{ matrix.os }})
         run: npm run test:e2e
+
+      - name: Multi-session end-to-end test (one-at-a-time promotion on ${{ matrix.os }})
+        run: npm run test:e2e-multi

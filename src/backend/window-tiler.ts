@@ -26,6 +26,39 @@ export function windowManagementAvailable(): boolean {
     return windowManager !== null;
 }
 
+/**
+ * On macOS, ask for the Accessibility grant that window moving requires (this triggers the system
+ * prompt on first run) and report whether it is granted. No-op / true elsewhere.
+ */
+export function ensureAccessibilityGrant(): boolean {
+    if (!isMac || !windowManager) return true;
+    try {
+        const wm = windowManager as unknown as { requestAccessibility?: () => boolean };
+        if (typeof wm.requestAccessibility === 'function') {
+            return wm.requestAccessibility();
+        }
+    } catch (e) {
+        console.warn(`requestAccessibility failed: ${(e as Error).message}`);
+    }
+    return false;
+}
+
+/**
+ * node-window-manager's win32 setBounds multiplies the given coordinates by the scale factor of the
+ * monitor the window is currently on. Electron hands us DIP coordinates, so on Windows we must divide
+ * by that scale factor to land in the right place on a HiDPI display. Elsewhere the bounds pass
+ * through unchanged.
+ */
+function toNativeBounds(bounds: Bounds, scaleFactor?: number): Bounds {
+    if (!isWindows || !scaleFactor || scaleFactor === 1) return bounds;
+    return {
+        x: Math.round(bounds.x / scaleFactor),
+        y: Math.round(bounds.y / scaleFactor),
+        width: Math.round(bounds.width / scaleFactor),
+        height: Math.round(bounds.height / scaleFactor),
+    };
+}
+
 function safeTitle(win: Window): string {
     try {
         return win.getTitle() ?? '';
@@ -57,12 +90,32 @@ export function findWindowByPid(pid: number): Window | undefined {
     return titled[0] ?? filtered[0];
 }
 
-/** Move/resize a process's window. Returns true if a window was found and positioned. */
-export function setWindowBounds(pid: number, bounds: Bounds): boolean {
+/**
+ * Move/resize a process's window. Returns true only if the window was actually repositioned.
+ *
+ * On macOS, node-window-manager moves windows through the Accessibility API, which silently no-ops
+ * without the user's grant — while still *finding* the window. We therefore read the bounds back and
+ * confirm the move took, so callers (and the UI's "grant Accessibility" warning) reflect reality
+ * rather than reporting success on a window that never moved.
+ */
+export function setWindowBounds(pid: number, bounds: Bounds, scaleFactor?: number): boolean {
     try {
         const win = findWindowByPid(pid);
         if (!win) return false;
-        win.setBounds(bounds);
+        win.setBounds(toNativeBounds(bounds, scaleFactor));
+
+        if (isMac) {
+            try {
+                const after = win.getBounds();
+                if (after && typeof after.x === 'number' && typeof after.y === 'number') {
+                    const moved = Math.abs(after.x - bounds.x) <= 4 && Math.abs(after.y - bounds.y) <= 4;
+                    return moved;
+                }
+            } catch {
+                // Can't read back — assume the move worked rather than warn spuriously.
+                return true;
+            }
+        }
         return true;
     } catch (e) {
         console.warn(`setWindowBounds failed for PID ${pid}: ${(e as Error).message}`);
@@ -87,11 +140,11 @@ export function minimizeWindow(pid: number): void {
 }
 
 /** Tile the given process windows into a grid within `workArea`. Returns how many were placed. */
-export function tileWindows(pids: number[], workArea: WorkArea): number {
+export function tileWindows(pids: number[], workArea: WorkArea, scaleFactor?: number): number {
     let placed = 0;
     pids.forEach((pid, index) => {
         const bounds = computeTileBounds(index, pids.length, workArea);
-        if (setWindowBounds(pid, bounds)) placed++;
+        if (setWindowBounds(pid, bounds, scaleFactor)) placed++;
     });
     return placed;
 }

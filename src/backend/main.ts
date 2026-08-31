@@ -1,3 +1,4 @@
+import './puppeteer-cache'; // MUST be first: sets PUPPETEER_CACHE_DIR before puppeteer is loaded.
 import path from 'path';
 import fs from 'fs';
 import { app, BrowserWindow, safeStorage, screen } from 'electron';
@@ -11,6 +12,7 @@ import RendererConnector from './renderer-connector';
 import { computeMainSplit } from './tiling';
 import { selectNextToProcess, evaluateMonitorTick } from './session-queue';
 import {
+    ensureAccessibilityGrant,
     minimizeWindow,
     requiresAccessibilityGrant,
     restoreWindow,
@@ -20,14 +22,8 @@ import {
 import { attemptAutoLogin } from './auto-login';
 
 // Use the stealth plugin to make the spawned Chromium sessions look like ordinary browsers.
+// (PUPPETEER_CACHE_DIR for packaged builds is set in ./puppeteer-cache, imported first above.)
 puppeteer.use(StealthPlugin());
-
-// In a packaged build, Chromium is bundled under resources/puppeteer-cache
-// (see the `extraResources` entry in package.json's `build` config). Gate on app.isPackaged, not
-// isDev, so an unpackaged production run (e.g. the CI e2e) still uses Puppeteer's default cache.
-if (app.isPackaged && process.resourcesPath) {
-    process.env.PUPPETEER_CACHE_DIR = path.join(process.resourcesPath, 'puppeteer-cache');
-}
 
 // --- Constants ---
 const DEFAULT_SELECTOR = '#hlLinkToQueueTicket2Text';
@@ -75,6 +71,12 @@ const createMainWindow = async () => {
         },
     });
 
+    // Null the reference when the window is closed, so createMainWindow can recreate it (macOS: the
+    // app stays alive after the control panel is closed, and clicking the dock icon must reopen it).
+    mainWindow.on('closed', () => {
+        mainWindow = null;
+    });
+
     await mainWindow.loadURL(
         isDev
             ? 'http://localhost:3000'
@@ -87,32 +89,50 @@ const createMainWindow = async () => {
         const { main } = computeMainSplit(mainScreen.workArea, MAIN_UI_FRACTION);
         mainWindow.setBounds(main);
     }
+
+    // If we're reopening after a close, re-point the existing connector at the new window. IPC
+    // handlers live on the global ipcMain, so they must not be re-registered.
+    rendererConnector?.setWindow(mainWindow);
 };
 
 /** Place a session's browser window on the right-hand "session" pane of the primary screen. */
 const placeSessionOnMain = (pid: number): boolean => {
     if (!mainScreen) return false;
     const { session } = computeMainSplit(mainScreen.workArea, MAIN_UI_FRACTION);
-    return setWindowBounds(pid, session);
+    return setWindowBounds(pid, session, mainScreen.scaleFactor);
 };
 
 /**
- * Tile every session's window while monitoring. Uses the secondary screen if present, otherwise
- * minimizes the windows to get them out of the way. Returns how many windows were placed.
+ * Tile the still-waiting session windows (active/monitoring/triggered) while monitoring. Sessions
+ * that are 'processing' or 'processed' are left alone — the user may be mid-checkout on the main
+ * pane, and yanking that window into the grid (or minimizing it on a single monitor) would disrupt
+ * them. Uses the secondary screen if present, otherwise minimizes the windows to get them out of the
+ * way. Returns how many windows were placed.
  */
 const tileMonitoringSessions = (): number => {
-    const pids = Array.from(sessions.values()).map((s) => s.pid);
+    const pids = Array.from(sessions.values())
+        .filter((s) => s.status !== 'processing' && s.status !== 'processed')
+        .map((s) => s.pid);
     if (pids.length === 0) return 0;
     if (!secondaryScreen) {
         pids.forEach(minimizeWindow);
         return 0;
     }
-    return tileWindows(pids, secondaryScreen.workArea);
+    return tileWindows(pids, secondaryScreen.workArea, secondaryScreen.scaleFactor);
 };
 
-/** Promote the next triggered session (if any) to the foreground for the user to complete. */
+/**
+ * Promote the next triggered session (if any) to the foreground for the user to complete. Dead
+ * sessions (browser crashed or window closed) that are still queued are discarded rather than
+ * promoted — otherwise a dead session would be marked 'processing' and deadlock the queue.
+ */
 const promoteNextSession = (): void => {
-    const next = selectNextToProcess(sessions.values());
+    let next = selectNextToProcess(sessions.values());
+    while (next && !next.browser.isConnected()) {
+        clearMonitor(next.id);
+        sessions.delete(next.id);
+        next = selectNextToProcess(sessions.values());
+    }
     if (!next) return;
 
     next.status = 'processing';
@@ -217,22 +237,52 @@ function clearCredentials(): void {
     }
 }
 
+// --- Per-session browser profiles ---
+// Each spawn gets its own Chromium userDataDir under userData/session-<ts>. These hold post-login UT
+// SSO cookies, so they must not linger: we delete a session's profile when its browser goes away, and
+// sweep any left over from a previous run (e.g. a crash) at startup.
+function removeSessionProfile(dir: string): void {
+    try {
+        fs.rmSync(dir, { recursive: true, force: true });
+    } catch (e) {
+        console.warn(`Failed to remove session profile ${dir}: ${(e as Error).message}`);
+    }
+}
+
+function sweepStaleSessionProfiles(): void {
+    try {
+        for (const name of fs.readdirSync(userDataPath)) {
+            if (name.startsWith('session-')) removeSessionProfile(path.join(userDataPath, name));
+        }
+    } catch (e) {
+        // userData may not exist yet on first run — nothing to sweep.
+    }
+}
+
 // --- IPC handlers ---
 const registerHandlers = (connector: RendererConnector): void => {
     connector.addRequestHandler(RequestResponseChannels.SPAWN_SESSION, async (_event, data) => {
+        let browser: Browser | undefined;
+        let sessionUserDataPath: string | undefined;
         try {
             const url = data.url;
             const selector = data.selector?.trim() || DEFAULT_SELECTOR;
             const eid = data.eid?.trim() || '';
-            const password = data.password || '';
+            // Fall back to the stored password when the renderer doesn't send one (it no longer holds
+            // the saved password in plaintext — see LOAD_CREDENTIALS).
+            let password = data.password || '';
+            if (!password) {
+                const saved = loadCredentials();
+                if (saved && saved.password && (!eid || saved.eid === eid)) password = saved.password;
+            }
 
             const sessionId = `session-${Date.now()}`;
-            const sessionUserDataPath = path.join(userDataPath, sessionId);
+            sessionUserDataPath = path.join(userDataPath, sessionId);
             if (!fs.existsSync(sessionUserDataPath)) {
                 fs.mkdirSync(sessionUserDataPath, { recursive: true });
             }
 
-            const browser = await puppeteer.launch({
+            browser = await puppeteer.launch({
                 headless: false,
                 userDataDir: sessionUserDataPath,
                 defaultViewport: null,
@@ -301,6 +351,21 @@ const registerHandlers = (connector: RendererConnector): void => {
             activeSessionId = sessionId;
             sessions.set(sessionId, { id: sessionId, browser, page, pid, selector, status: 'active', armed: false });
 
+            // Clean up if the user closes the Chromium window or it crashes: stop monitoring, drop the
+            // session, wipe its (auth-cookie-bearing) profile, and let the next queued session through
+            // if this one was the active/processing one — so a closed window can't deadlock the queue.
+            const profileDir = sessionUserDataPath;
+            browser.on('disconnected', () => {
+                const dead = sessions.get(sessionId);
+                clearMonitor(sessionId);
+                sessions.delete(sessionId);
+                if (activeSessionId === sessionId) activeSessionId = null;
+                if (profileDir) removeSessionProfile(profileDir);
+                if (dead && (dead.status === 'processing' || dead.status === 'triggered')) {
+                    promoteNextSession();
+                }
+            });
+
             placeSessionOnMain(pid);
 
             // Best-effort auto-login (non-blocking). Duo 2FA is still approved by the user.
@@ -311,6 +376,9 @@ const registerHandlers = (connector: RendererConnector): void => {
             return { success: true, sessionId };
         } catch (error) {
             console.error('Failed to spawn session:', error);
+            // Don't leave an orphaned Chromium window or a stray profile behind on failure.
+            if (browser) await browser.close().catch(() => undefined);
+            if (sessionUserDataPath) removeSessionProfile(sessionUserDataPath);
             return { success: false, error: (error as Error)?.message };
         }
     });
@@ -347,15 +415,26 @@ const registerHandlers = (connector: RendererConnector): void => {
             clearCredentials();
             return { success: true };
         }
-        const ok = saveCredentials(data.eid, data.password);
+        // Keep the previously-saved password when the renderer sends an empty one (the user left the
+        // "saved password" placeholder untouched) — otherwise we'd wipe it on the next spawn.
+        let password = data.password;
+        if (!password) {
+            const existing = loadCredentials();
+            password = existing?.password ?? '';
+        }
+        const ok = saveCredentials(data.eid, password);
         return ok
             ? { success: true }
             : { success: false, error: 'Secure storage is unavailable on this device.' };
     });
 
     connector.addRequestHandler(RequestResponseChannels.LOAD_CREDENTIALS, async () => {
+        // Never hand the decrypted password back to the renderer; only report that one is stored.
+        // On spawn, the main process reads it directly (see SPAWN_SESSION).
         const creds = loadCredentials();
-        return creds ? { ...creds, remembered: true } : { eid: '', password: '', remembered: false };
+        return creds
+            ? { eid: creds.eid, remembered: true, hasPassword: !!creds.password }
+            : { eid: '', remembered: false, hasPassword: false };
     });
 
     connector.addListener(RendererToMainChannels.MARK_SESSION_PROCESSED, async (_event, data) => {
@@ -370,6 +449,12 @@ const registerHandlers = (connector: RendererConnector): void => {
 
 // --- App lifecycle ---
 async function init() {
+    // Remove any per-session browser profiles left over from a previous run (they hold auth cookies).
+    sweepStaleSessionProfiles();
+
+    // Prompt for the macOS Accessibility grant up front so window tiling can work on first use.
+    ensureAccessibilityGrant();
+
     mainScreen = screen.getPrimaryDisplay();
     const secondary = screen.getAllDisplays().find((display) => display.id !== mainScreen!.id);
     secondaryScreen = secondary ?? null;
@@ -385,6 +470,15 @@ async function init() {
 }
 
 app.whenReady().then(init);
+
+// On quit, close every spawned browser and wipe its profile so no authenticated session lingers.
+app.on('before-quit', () => {
+    for (const [id, session] of sessions) {
+        clearMonitor(id);
+        session.browser.close().catch(() => undefined);
+        removeSessionProfile(path.join(userDataPath, id));
+    }
+});
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {

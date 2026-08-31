@@ -11,6 +11,10 @@
 const path = require('path');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+// Drive the app's REAL monitor decision (compiled from src/backend/session-queue.ts) rather than a
+// re-implementation, so this test stays honest if the trigger logic changes. Requires
+// `npm run electron:build` first.
+const { evaluateMonitorTick } = require('../dist/backend/session-queue.js');
 
 puppeteer.use(StealthPlugin());
 
@@ -18,8 +22,7 @@ const SELECTOR = '#hlLinkToQueueTicket2Text';
 const PAGE_URL =
   'file://' + path.join(__dirname, '..', 'dummy-page', 'queue-sim.html') + '?auto=0';
 
-// Mirrors the polling check in src/backend/main.ts.
-async function elementExists(page) {
+async function elementPresent(page) {
   return page.evaluate((sel) => document.querySelector(sel) !== null, SELECTOR);
 }
 
@@ -32,18 +35,22 @@ async function elementExists(page) {
     const page = (await browser.pages())[0] || (await browser.newPage());
     await page.goto(PAGE_URL, { waitUntil: 'domcontentloaded' });
 
-    if (!(await elementExists(page))) {
+    if (!(await elementPresent(page))) {
       throw new Error('waiting-room element was not present on load');
     }
-    console.log('✓ waiting-room element present (session would start MONITORING)');
+    // Arm from the confirmed-present state, exactly as the app arms while it can see the waiting room.
+    let armed = evaluateMonitorTick({ armed: false, elementPresent: true, status: 'monitoring' }).armed;
+    console.log('✓ waiting-room element present (session ARMED, MONITORING)');
 
     // Simulate the user advancing past the queue.
     await page.evaluate(() => document.getElementById('advance').click());
 
-    // Poll like the app does (500ms cadence), up to 10s.
+    // Poll like the app does (500ms cadence) through the real arm-then-trigger decision, up to 10s.
     let triggered = false;
     for (let i = 0; i < 20; i++) {
-      if (!(await elementExists(page))) {
+      const res = evaluateMonitorTick({ armed, elementPresent: await elementPresent(page), status: 'monitoring' });
+      armed = res.armed;
+      if (res.trigger) {
         triggered = true;
         break;
       }

@@ -11,6 +11,12 @@ export default class RendererConnector {
         this.browserWindow = mainWindow;
     }
 
+    /** Point the connector at a (re)created window. IPC handlers live on the global ipcMain and are
+     *  unaffected — only the target for renderer-bound messages needs updating. */
+    public setWindow(mainWindow: BrowserWindow) {
+        this.browserWindow = mainWindow;
+    }
+
     public sendToRenderer<T extends MainToRendererChannels>(channel: T, data: MainToRendererPayloads[T]) {
         this.browserWindow?.webContents.send(channel, data);
     }

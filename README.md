@@ -15,7 +15,8 @@ front of your screen so you can buy. More sessions = better odds.
 
 1. **Go to the [Releases page](https://github.com/AayushBaniya2006/longhorn-ticket-grabber/releases/latest).**
 2. Download the file for your computer:
-   - **Mac:** the file ending in **`.dmg`**
+   - **Mac (Apple Silicon — M1/M2/M3/M4):** the file ending in **`.dmg`** (`…-Mac-AppleSilicon.dmg`).
+     Intel Macs aren't supported by the prebuilt download yet — build from source (below).
    - **Windows:** the file ending in **`.exe`**
 3. **Open it.** Because the app isn't paid-signed yet, your computer may warn you the first time:
    - **Mac:** right-click (or Control-click) the app → **Open** → **Open** again. Then, so it can move
@@ -50,6 +51,7 @@ npm run test:arming         # regression: does NOT false-trigger when the queue 
 npm run test:autologin      # auto-login flow against a local fake UT site
 npm run test:smoke          # launches Electron and checks the UI renders with a working bridge
 npm run test:e2e            # full spawn → monitor → trigger → process against the queue simulator
+npm run test:e2e-multi      # two sessions: proves only one processes at a time, next is promoted
 ```
 
 **Test it against the real site (recommended before a real drop).** The tests above use local

@@ -80,8 +80,10 @@ export interface RequestResponsePayloads {
         REQUEST: {};
         RESPONSE: Promise<{
             eid: string;
-            password: string;
             remembered: boolean;
+            // Whether a password is stored on this device. The password itself is never sent to the
+            // renderer — the main process reads it directly when spawning a session.
+            hasPassword: boolean;
         }>;
     }
 }
