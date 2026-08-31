@@ -98,13 +98,16 @@ const App = () => {
     setIsLoading(true);
     setError(null);
     setNotice(null);
-    // Persist (or clear) the saved login for next time. Awaited + guarded so a failure surfaces to
-    // the user instead of becoming an unhandled promise rejection.
-    try {
-      const saveRes = await window.api.request(window.api.channels.RequestResponseChannels.SAVE_CREDENTIALS, { eid, password, remember: rememberCreds });
-      if (rememberCreds && saveRes && !saveRes.success && saveRes.error) setNotice(saveRes.error);
-    } catch {
-      setNotice('Could not save your login on this device; you can still continue.');
+    // Persist (or clear) the saved login — but only when there's something to do, and NEVER blocking
+    // the spawn on it. Saving touches the OS keychain (and can pop a keychain permission dialog); if
+    // no credentials were entered there's nothing to store, so we skip it entirely and go straight to
+    // spawning. Guarded so a save failure surfaces as a notice instead of an unhandled rejection.
+    const hasCredsToSave = eid.trim() !== '' || password !== '';
+    if (!rememberCreds || hasCredsToSave) {
+      window.api
+        .request(window.api.channels.RequestResponseChannels.SAVE_CREDENTIALS, { eid, password, remember: rememberCreds })
+        .then((saveRes) => { if (rememberCreds && saveRes && !saveRes.success && saveRes.error) setNotice(saveRes.error); })
+        .catch(() => setNotice('Could not save your login on this device; you can still continue.'));
     }
     const res = await window.api.request(window.api.channels.RequestResponseChannels.SPAWN_SESSION, { url, selector, eid, password });
     if (res?.success) {

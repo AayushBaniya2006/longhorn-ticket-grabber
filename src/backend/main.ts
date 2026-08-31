@@ -415,6 +415,11 @@ const registerHandlers = (connector: RendererConnector): void => {
             clearCredentials();
             return { success: true };
         }
+        // Nothing to store — don't touch the OS keychain (which can pop a permission dialog) when the
+        // user hasn't entered any credentials.
+        if (!data.eid && !data.password) {
+            return { success: true };
+        }
         // Keep the previously-saved password when the renderer sends an empty one (the user left the
         // "saved password" placeholder untouched) — otherwise we'd wipe it on the next spawn.
         let password = data.password;
