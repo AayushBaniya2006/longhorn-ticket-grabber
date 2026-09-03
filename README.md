@@ -24,12 +24,27 @@ window to the front so *you* can clear it by hand. It does **not** solve, suppre
 check — by design, and that won't change. Firing many automated sessions at once tends to make the
 block *more* likely, not less, because anti-bot systems correlate parallel sessions from one machine.
 
-**2. "More sessions = better odds" is unproven — and may be false.** The UT Big Ticket claim is a
-**login-first random lottery**. If the draw is **per-account** (one entry per EID), then ten windows
-logged into your one account are still **one entry** — no multiplier. Parallel sessions only help if
-the draw is **per-session** (each browser gets its own independent position), and nobody has verified
-which it is. `npm run preflight:two` (below) is the only way to find out, at a real drop. Until then,
-treat "more sessions" as an assumption, not a promise.
+**2. "More sessions = better odds" — now with a documented mechanism, and an honest ceiling.** UT's
+drop uses a Queue-it **pre-queue**: when the timer hits zero, everyone waiting is assigned a **random**
+position (Queue-it's own docs call it a raffle, done specifically to stop bots from refreshing for a
+better spot). Each session that's in before the timer gets its **own independent draw** — so N parallel
+sessions act like **N raffle tickets**, and keeping the best one genuinely raises your odds of
+**getting *in* before it sells out**. Our own first-drop recording backs the premise: 8 sessions, 8
+**distinct** Queue-it tokens (independent positions).
+
+Two hard limits on that, though:
+- **It gets you *in*, not *more tickets*.** The per-account purchase cap is enforced downstream by
+  Paciolan at checkout, not by the queue. Ten sessions ≠ ten tickets — they're ten chances to reach the
+  front and claim your one allotment before it's gone.
+- **The operator can switch it off.** Queue-it lets a site enforce one-place-per-visitor (enqueue
+  tokens / visitor uniqueness / IP-reputation rules). If UT has those on, extra sessions get collapsed
+  to one token or challenged — and running many sessions is exactly the behaviour those layers target.
+  Whether UT enabled them for a given drop isn't public.
+
+So: plausibly helpful for getting in, with a real chance it's neutralised. You no longer have to guess —
+tick **"Record this drop"** (Advanced settings) and, after the drop, run
+`npm run diagnostics:analyze -- <log>` (or `npm run preflight:two` live): distinct tokens per session =
+independent positions (it helped); a shared token = the queue collapsed your sessions (it didn't).
 
 The mechanics — spawn, monitor, trigger, tile, promote — genuinely work (proven end to end against
 the bundled queue simulator). Whether they translate into an *edge* on the real site is the open
@@ -77,7 +92,7 @@ git clone https://github.com/AayushBaniya2006/longhorn-ticket-grabber.git
 cd longhorn-ticket-grabber
 npm install
 npm run electron:serve      # run in dev
-npm test                    # unit + component tests (32 tests)
+npm test                    # unit + component tests (81 tests)
 npm run test:integration    # headless monitor/trigger check against the queue simulator
 npm run test:arming         # regression: does NOT false-trigger when the queue element is absent at start
 npm run test:autologin      # auto-login flow against a local fake UT site
@@ -99,6 +114,30 @@ It opens a visible browser (you approve Duo by hand) and reports: did auto-login
 form, is the `#hlLinkToQueueTicket2Text` selector actually present on the real waiting room, and — with
 `--watch` — does it disappear when the queue clears. Credentials can also come from `UT_EID` /
 `UT_PASSWORD`.
+
+**Settle the per-session vs. per-account question (`preflight:two`).** This is the one test that
+decides whether this project can help at all — see limit #2 above. It launches **two** browsers with
+fully separate profiles, you log into **both by hand with the same EID**, and it compares the queue
+positions they land in:
+
+```bash
+npm run preflight:two -- "https://texaslonghorns.evenue.net/signin" --login-secs 300 --watch 900
+```
+
+It never reads, types, or prints credentials; cookie values are SHA-256-hashed before display, and
+both profile directories are wiped on exit. Read the verdict at the bottom:
+
+| Verdict | Meaning |
+| --- | --- |
+| **DIFFERENT positions** | Per-session. Parallelism genuinely helps. |
+| **SAME position** | Per-account. Extra windows are copies of one draw — stop here. |
+| **ONE EVICTED** | Worse than useless: a second window costs you the position you had. |
+| **VOID** | A "Press & Hold" was still on screen, so a profile never reached the queue. Clear it by hand in both windows and re-run. |
+
+With `--watch`, one profile clearing while the other keeps waiting is the strongest evidence
+available — that is per-session behaviour observed directly, not inferred from cookies.
+
+You must run this **during a real drop**, since the queue only exists then.
 
 **Dev troubleshooting**
 - *"Something is already running on port 3000"* (the dev server exits and takes Electron with it):
@@ -125,14 +164,24 @@ See [docs/manual-smoke-test.md](docs/manual-smoke-test.md) for an end-to-end tes
 ## How it works
 
 1. **Spawn** — launches a real Puppeteer Chromium window (its own profile) pointed at the queue URL.
-   No stealth/anti-detection plugin and no spoofed user agent — the window presents as the ordinary
-   browser it is, and you clear any human check, log in, and check out by hand.
+   No stealth/anti-detection plugin, no spoofed user agent, no forced software rendering, and
+   Chromium's sandbox left **enabled** — the window presents as the ordinary browser it genuinely is
+   (and reports its real GPU), and you clear any human check, log in, and check out by hand.
 2. **Log in manually**, then **Session Ready** — the window is tiled and monitoring begins.
-3. **Monitoring** — polls the page every 500ms with an *arm-then-trigger* rule: the waiting-room
-   element (the CSS selector) must be seen **present at least once** (you've actually reached the
-   queue) before its later disappearance counts as **triggered**. This is what prevents a false
-   trigger while the page is still on sign-in / EID login / Duo, where the element is legitimately
-   absent.
+3. **Monitoring** — polls the page every 500ms against two *arm-then-trigger* rules; whichever fires
+   first wins.
+   - **Primary — Queue-it host transition.** UT's drop fronts the ticketing site with a Queue-it
+     waiting room on a **separate host** (`queue.paclive.com`). The session arms once the tab is seen
+     on that host, and triggers once it is redirected back to `texaslonghorns.evenue.net` carrying a
+     Queue-it token (`qitq`/`qitrt=Queue`/`qith`). "It's your turn" is a redirect, not a DOM change,
+     so this is far more robust than watching an element.
+   - **Fallback — selector disappearance.** For drops with no Queue-it room: the waiting-room element
+     must be seen **present at least once** before its later disappearance counts as triggered.
+
+   Both rules require the release to hold for 3 consecutive polls, and pages with no hostname
+   (`about:blank`, `chrome-error://`) are ignored, so a mid-redirect blank page can't false-trigger.
+   Arming is what prevents a false trigger while the page is still on sign-in / EID login / Duo,
+   where neither signal is legitimately present.
 4. **Anti-bot challenge** — if the site throws a "Press & Hold" human check, the app **detects** it,
    marks the session **blocked ("Needs you: Press & Hold")**, and brings that window forward so you
    can clear it. It never solves, suppresses, or bypasses the check — clearing it is your job, by
@@ -151,11 +200,19 @@ src/
     api-channels.ts         # typed IPC channels + payloads
     renderer-connector.ts   # main-side IPC helper
     tiling.ts               # pure window-tiling math (unit tested)
-    session-queue.ts        # pure session ordering/state (unit tested)
+    session-queue.ts        # pure session state: Queue-it transition, selector rule,
+                            #   challenge detection (unit tested)
     window-tiler.ts         # cross-platform (macOS + Windows) window placement
 dummy-page/                 # local test harness
 .github/workflows/          # CI: build & publish installers
 ```
+
+## Version history
+
+See **[CHANGELOG.md](CHANGELOG.md)** for what changed and when. The current line is **v0.4.0** (alerts,
+queue leaderboard, diagnostics). The previous known-good version is **v0.3.1** — it ran end-to-end
+against the real queue and is kept on the repo as the **`v0.3.1-stable`** branch and the **`v0.3.1`**
+release, so it's there as a fallback if a newer build ever misbehaves.
 
 ## Credits
 

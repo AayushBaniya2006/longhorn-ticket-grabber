@@ -21,7 +21,13 @@ export interface RendererToMainPayloads {
 
 export enum MainToRendererChannels {
     SESSION_TRIGGERED = "SESSION_TRIGGERED",
-    SESSION_PROCESSING = "SESSION_PROCESSING"
+    SESSION_PROCESSING = "SESSION_PROCESSING",
+    // An anti-bot challenge ("Press & Hold") is on screen in this session and a human must clear it.
+    SESSION_BLOCKED = "SESSION_BLOCKED",
+    // ...and it has since cleared, so the session is back on the site.
+    SESSION_UNBLOCKED = "SESSION_UNBLOCKED",
+    // Live Queue-it progress for a monitoring session (drives the "closest to the front" leaderboard).
+    SESSION_PROGRESS = "SESSION_PROGRESS"
 }
 
 export interface MainToRendererPayloads {
@@ -30,6 +36,19 @@ export interface MainToRendererPayloads {
     };
     [MainToRendererChannels.SESSION_PROCESSING]: {
         sessionId: string;
+    };
+    [MainToRendererChannels.SESSION_BLOCKED]: {
+        sessionId: string;
+    };
+    [MainToRendererChannels.SESSION_UNBLOCKED]: {
+        sessionId: string;
+    };
+    [MainToRendererChannels.SESSION_PROGRESS]: {
+        sessionId: string;
+        // 0..1 closeness to the front, or null when the queue page exposes no progress bar.
+        progress: number | null;
+        // People ahead of this session, or null when the page doesn't show a count.
+        usersAhead: number | null;
     };
 }
 
@@ -48,6 +67,8 @@ export interface RequestResponsePayloads {
             selector: string;
             eid?: string;
             password?: string;
+            // When true, record this drop's per-session queue tokens/progress/timings to a local log.
+            recordDiagnostics?: boolean;
         },
         RESPONSE: Promise<{
             success: boolean;

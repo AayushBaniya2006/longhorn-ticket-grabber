@@ -41,7 +41,12 @@ npm run electron:serve
 5. Within ~0.5–5.5s the `#box` element disappears. Longhorn Ticket Grabber flips the session to `TRIGGERED` (green),
    lists it under **Ready to Process**, and — since nothing else is processing — promotes it to
    `PROCESSING` in the **Processing Session** panel.
-6. Click **Mark as Processed** (in the panel or the session row). The session becomes `PROCESSED` and
+6. **Never-miss-a-clear alert fires** at the same moment: a native macOS **notification** ("A session
+   cleared — buy now!"), the **Dock icon bounces** (and keeps bouncing until you click back into the
+   app), the window **title flashes** "⚠️ ACTION NEEDED", and a green **"GO NOW — a session cleared!"**
+   banner appears at the top with a live **"cleared 0:0X ago"** timer and an **"I'm on it"** button that
+   hides the banner (the session stays in Ready/Processing). No sound plays — that is by design.
+7. Click **Mark as Processed** (in the panel or the session row). The session becomes `PROCESSED` and
    its window is minimized.
 
 ## 4. Multi-session check
@@ -87,6 +92,9 @@ queue clears, that element is removed — exactly what happens on the real site 
 3. Spawn a session → **Session Ready**. Watch the counter tick down; when it hits 0 (or click
    **Advance to the front now**), the element disappears and the app flips to `triggered → processing`.
 4. Spawn several to watch parallel sessions clear at different times.
+5. While sessions are monitoring, the **"Closest to the front"** leaderboard ranks them by the queue
+   page's own progress. For this simulator that's the **"N people ahead"** count (fewer ahead ranks
+   higher); a page that exposes no progress bar shows **"waiting…"**.
 
 This is the closest safe stand-in for a real drop — same selector, same disappear-to-trigger behavior.
 
@@ -100,10 +108,34 @@ Outside of an actual ticket release you can still confirm the app talks to the r
 will usually be met with a **"Press & Hold to confirm you are a human"** challenge (an *"Access to
 this page has been denied"* page with a reference ID). This is normal and expected — it is **not** a
 bug in the app. The app **detects** the challenge, marks the session **blocked** and lists it under
-**"Needs you: Press & Hold"**, and brings the window forward so you can clear it by hand. The app does
+**"Needs you: Press & Hold"**, and brings the window forward so you can clear it by hand. The same
+never-miss alert fires (a **notification** + **Dock bounce**), and the red **"Needs you: Press & Hold"**
+banner **pulses** and shows a **"waiting M:SS"** timer for each blocked session. The app does
 **not** solve or bypass the challenge, and it won't proceed past it until a human does. Clearing it
 here without a live drop just lands you back on the sign-in page (there's no queue element to watch).
 
 This verifies spawning, navigation, challenge detection, and polling against the real host. **Be
 considerate:** use one or two sessions, don't run it repeatedly, and don't try to defeat the human
 check — respect the site's Terms of Service.
+
+---
+
+## Capture a full real run (the one thing local tests can't prove)
+
+Everything above uses local pages, so the back half of a real drop — the Queue-it **release redirect**
+firing the trigger, **auto-login + Duo**, a checkout-time **Press & Hold**, and the actual **purchase** —
+has still never run end to end against the live site. The composed decision logic is now covered by
+`src/backend/drop-timeline.test.ts`, and the live monitor loop by `npm run test:e2e`, but the real
+site's behaviour can only be confirmed during an actual drop. So, at the next real drop:
+
+1. Before spawning, open **Advanced settings** and tick **"Record this drop (diagnostics)."**
+2. Spawn your sessions and let it run **all the way through** — keep any screen recording going until at
+   least one session reaches the front (don't stop at "still in queue," like the first capture did).
+3. Note whether: the released window **triggers** and pops to the front (Queue-it host-transition rule),
+   auto-login reaches the EID form, Duo prompts, a **Press & Hold** appears at checkout (and the app
+   flags it), and checkout completes.
+4. Afterwards, run `npm run diagnostics:analyze -- <the drop-*.jsonl under your app-data dir>` to see
+   whether your parallel sessions held **independent** queue positions (see README limit #2).
+
+That single full capture is what finally closes the loop on "does the whole thing work on the real
+site," and the diagnostics answer "did running several sessions actually help."

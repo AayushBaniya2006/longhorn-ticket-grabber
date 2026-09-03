@@ -3,14 +3,22 @@
 import { resolveBundledChromeExecutable } from './puppeteer-cache';
 import path from 'path';
 import fs from 'fs';
-import { app, BrowserWindow, dialog, safeStorage, screen } from 'electron';
+import crypto from 'crypto';
+import { app, BrowserWindow, dialog, Notification, safeStorage, screen } from 'electron';
 import isDev from 'electron-is-dev';
 import puppeteer, { Browser, Page } from 'puppeteer';
 
 import { MainToRendererChannels, RendererToMainChannels, RequestResponseChannels } from './api-channels';
 import RendererConnector from './renderer-connector';
 import { computeMainSplit } from './tiling';
-import { selectNextToProcess, evaluateMonitorTick } from './session-queue';
+import {
+    selectNextToProcess,
+    evaluateMonitorTick,
+    evaluateQueueTransition,
+    isChallengePage,
+    isProcessingInFlight,
+    normalizeQueueProgress,
+} from './session-queue';
 import {
     ensureAccessibilityGrant,
     minimizeWindow,
@@ -20,6 +28,7 @@ import {
     tileWindows,
 } from './window-tiler';
 import { attemptAutoLogin } from './auto-login';
+import { extractQueueToken, DiagEvent } from './diagnostics';
 
 // Plain puppeteer: these are real Chromium windows the user logs into and checks out from by hand,
 // so there is nothing to disguise. (PUPPETEER_CACHE_DIR for packaged builds is set in
@@ -43,6 +52,14 @@ interface Session {
     armed: boolean;
     // Consecutive polls the selector has been absent since arming; debounces transient blips.
     absentStreak: number;
+    // True while an anti-bot challenge ("Press & Hold") is on screen waiting for a human.
+    blocked: boolean;
+    // True once the tab has been seen on the Queue-it waiting-room host (queue.paclive.com).
+    queueArmed: boolean;
+    // Consecutive polls spent off the queue host since queueArmed — debounces the redirect chain.
+    offQueueStreak: number;
+    // Last Queue-it progress reading emitted to the renderer (rounded), to avoid spamming IPC each poll.
+    lastProgressKey: string;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -77,6 +94,15 @@ const createMainWindow = async () => {
     // app stays alive after the control panel is closed, and clicking the dock icon must reopen it).
     mainWindow.on('closed', () => {
         mainWindow = null;
+    });
+
+    // Stop the attention flash the moment the user actually looks at the app.
+    mainWindow.on('focus', () => {
+        try {
+            mainWindow?.flashFrame(false);
+        } catch {
+            // best-effort
+        }
     });
 
     await mainWindow.loadURL(
@@ -146,6 +172,50 @@ const promoteNextSession = (): void => {
     rendererConnector?.sendToRenderer(MainToRendererChannels.SESSION_PROCESSING, { sessionId: next.id });
 };
 
+/**
+ * Grab the user's attention when a session needs them NOW — it cleared the queue, or it hit a
+ * "Press & Hold" and can't proceed until a human clears it. Visual only, by design (no sound): a
+ * native notification, a Dock bounce (macOS bounces until the app is activated — the key signal for
+ * "you stepped away"), and a window-frame flash. This never touches the challenge itself; for a
+ * blocked session it only makes the human hand-off impossible to miss.
+ */
+function alertUser(kind: 'cleared' | 'blocked'): void {
+    const copy =
+        kind === 'cleared'
+            ? {
+                  title: '🎟️ A session cleared — buy now!',
+                  body: 'The queue released a session. Switch to that window and check out fast.',
+              }
+            : {
+                  title: '✋ A session needs you: Press & Hold',
+                  body: 'Clear the "confirm you are a human" check in the highlighted window to stay in line.',
+              };
+    try {
+        if (Notification.isSupported()) {
+            const n = new Notification({ title: copy.title, body: copy.body, urgency: 'critical' });
+            n.on('click', () => {
+                mainWindow?.show();
+                mainWindow?.focus();
+            });
+            n.show();
+        }
+    } catch {
+        // Notifications can be unavailable (permissions, headless); the Dock bounce below still fires.
+    }
+    // macOS: bounce the Dock icon until the user activates the app. No-op on other platforms.
+    try {
+        app.dock?.bounce('critical');
+    } catch {
+        // dock is macOS-only
+    }
+    // Second nudge: flash the window frame (Windows taskbar) / bounce the Dock. Cleared on focus.
+    try {
+        mainWindow?.flashFrame(true);
+    } catch {
+        // best-effort
+    }
+}
+
 // --- Monitoring ---
 const clearMonitor = (sessionId: string): void => {
     const timer = monitorTimers.get(sessionId);
@@ -173,6 +243,44 @@ const startMonitoring = (sessionId: string): void => {
         try {
             const probe = await current.page.evaluate((sel: string) => ({
                 present: document.querySelector(sel) !== null,
+                href: document.location.href,
+                // Anti-bot interstitial signals. Scraped here, judged in Node by isChallengePage.
+                challenge: {
+                    title: document.title,
+                    bodyText: (document.body?.innerText || '').slice(0, 2000),
+                    hasChallengeElement:
+                        document.querySelector('#px-captcha, [id^="px-captcha"], [class*="px-captcha"]') !== null,
+                },
+                // Queue-it progress signals (best-effort — no documented API). Read an ARIA progressbar
+                // if present, plus any "N users ahead" text the operator chose to show. Normalized in Node.
+                progress: (() => {
+                    let barFraction: number | null = null;
+                    const pb = document.querySelector('[role="progressbar"]');
+                    if (pb) {
+                        const now = parseFloat(pb.getAttribute('aria-valuenow') || '');
+                        const max = parseFloat(pb.getAttribute('aria-valuemax') || '100');
+                        const min = parseFloat(pb.getAttribute('aria-valuemin') || '0');
+                        if (isFinite(now) && isFinite(max) && max > min) barFraction = (now - min) / (max - min);
+                    }
+                    if (barFraction === null) {
+                        // Fallback for a bar with no ARIA: a progress element whose fill is an inline width %.
+                        const fillEl = document.querySelector('[class*="progress" i] [style*="width"]') as HTMLElement | null;
+                        const w = fillEl && fillEl.style ? fillEl.style.width.trim() : '';
+                        const pm = /^([\d.]+)%$/.exec(w);
+                        if (pm) {
+                            const f = parseFloat(pm[1]) / 100;
+                            if (isFinite(f)) barFraction = f;
+                        }
+                    }
+                    let usersAhead: number | null = null;
+                    const txt = document.body ? document.body.innerText : '';
+                    const m = txt.match(/([\d,]+)\s+(?:users?|people|visitors?)\s+(?:ahead|in front)/i);
+                    if (m) {
+                        const n = parseInt(m[1].replace(/,/g, ''), 10);
+                        if (!isNaN(n)) usersAhead = n;
+                    }
+                    return { barFraction, usersAhead };
+                })(),
                 // A Chrome network-error page has no queue element either; don't mistake it for "your
                 // turn". Detect it (and about:blank) so a failed load can't count toward a trigger.
                 badPage:
@@ -190,6 +298,57 @@ const startMonitoring = (sessionId: string): void => {
                 return;
             }
 
+            // A "Press & Hold" interstitial means this session is stalled until a human clears it.
+            // Surface it and put the window where the user can reach it — we never clear it for them.
+            if (isChallengePage(probe.challenge)) {
+                current.absentStreak = 0;
+                if (!current.blocked) {
+                    current.blocked = true;
+                    sessions.set(sessionId, current);
+                    console.warn(`Session ${sessionId} hit an anti-bot challenge; needs a manual Press & Hold.`);
+                    restoreWindow(current.pid);
+                    // Don't steal the main pane out from under an in-flight checkout.
+                    if (!isProcessingInFlight(sessions.values())) placeSessionOnMain(current.pid);
+                    rendererConnector?.sendToRenderer(MainToRendererChannels.SESSION_BLOCKED, { sessionId });
+                    recordDiag({ sessionId, event: 'blocked' });
+                    alertUser('blocked');
+                } else {
+                    sessions.set(sessionId, current);
+                }
+                return;
+            }
+
+            if (current.blocked) {
+                // The user cleared it. Re-hide the window and carry on monitoring.
+                current.blocked = false;
+                sessions.set(sessionId, current);
+                rendererConnector?.sendToRenderer(MainToRendererChannels.SESSION_UNBLOCKED, { sessionId });
+                recordDiag({ sessionId, event: 'unblocked' });
+                tileMonitoringSessions();
+            }
+
+            // Primary rule: did the Queue-it waiting room hand this session back to the ticketing site?
+            const queue = evaluateQueueTransition({
+                href: probe.href,
+                queueArmed: current.queueArmed,
+                offQueueStreak: current.offQueueStreak,
+            });
+            if (queue.queueArmed !== current.queueArmed || queue.offQueueStreak !== current.offQueueStreak) {
+                if (queue.queueArmed && !current.queueArmed) {
+                    let host: string | null = null;
+                    try {
+                        host = new URL(probe.href).hostname;
+                    } catch {
+                        host = null;
+                    }
+                    recordDiag({ sessionId, event: 'queue-armed', tokenHash: hashToken(extractQueueToken(probe.href)), host });
+                }
+                current.queueArmed = queue.queueArmed;
+                current.offQueueStreak = queue.offQueueStreak;
+                sessions.set(sessionId, current);
+            }
+
+            // Fallback rule: the selector-disappearance heuristic, for drops without a Queue-it room.
             const { armed, absentStreak, trigger } = evaluateMonitorTick({
                 armed: current.armed,
                 elementPresent: probe.present,
@@ -203,11 +362,31 @@ const startMonitoring = (sessionId: string): void => {
                 sessions.set(sessionId, current);
             }
 
-            if (trigger) {
+            // Emit Queue-it progress for the leaderboard, but only when the rounded reading changes — no
+            // need to spam IPC every 500ms while a session inches forward.
+            const norm = normalizeQueueProgress(probe.progress);
+            const progressKey = `${norm.progress === null ? 'x' : Math.round(norm.progress * 100)}|${norm.usersAhead ?? 'x'}`;
+            if (progressKey !== current.lastProgressKey) {
+                current.lastProgressKey = progressKey;
+                sessions.set(sessionId, current);
+                rendererConnector?.sendToRenderer(MainToRendererChannels.SESSION_PROGRESS, {
+                    sessionId,
+                    progress: norm.progress,
+                    usersAhead: norm.usersAhead,
+                });
+                recordDiag({ sessionId, event: 'progress', progress: norm.progress, usersAhead: norm.usersAhead });
+            }
+
+            if (queue.trigger || trigger) {
+                console.log(
+                    `Session ${sessionId} triggered via ${queue.trigger ? 'Queue-it host transition' : 'selector disappearance'}.`,
+                );
                 clearMonitor(sessionId);
                 current.status = 'triggered';
                 sessions.set(sessionId, current);
                 rendererConnector?.sendToRenderer(MainToRendererChannels.SESSION_TRIGGERED, { sessionId });
+                recordDiag({ sessionId, event: 'triggered', tokenHash: hashToken(extractQueueToken(probe.href)) });
+                alertUser('cleared');
                 promoteNextSession();
             }
         } catch (e) {
@@ -277,12 +456,49 @@ function sweepStaleSessionProfiles(): void {
     }
 }
 
+// --- Diagnostics (opt-in per-drop recording) ---
+// When the user ticks "Record this drop", we append a JSONL of per-session events (queue-token hash,
+// progress, trigger timing) to userData/diagnostics/drop-<ts>.jsonl. It never stores raw tokens or any
+// credentials — only truncated SHA-256 hashes, enough to prove whether sessions held DISTINCT queue
+// positions. Analyze a log afterwards with `npm run diagnostics:analyze -- <file>`.
+let diagnosticsEnabled = false;
+let diagnosticsFile: string | null = null;
+
+function hashToken(token: string | null): string | null {
+    if (!token) return null;
+    return crypto.createHash('sha256').update(token).digest('hex').slice(0, 12);
+}
+
+function enableDiagnostics(): void {
+    if (diagnosticsEnabled) return;
+    diagnosticsEnabled = true;
+    try {
+        const dir = path.join(userDataPath, 'diagnostics');
+        fs.mkdirSync(dir, { recursive: true });
+        diagnosticsFile = path.join(dir, `drop-${Date.now()}.jsonl`);
+        console.log('[diagnostics] recording this drop to', diagnosticsFile);
+    } catch (e) {
+        console.warn('[diagnostics] could not open a log file:', (e as Error).message);
+        diagnosticsFile = null;
+    }
+}
+
+function recordDiag(ev: Omit<DiagEvent, 'ts'>): void {
+    if (!diagnosticsEnabled || !diagnosticsFile) return;
+    try {
+        fs.appendFileSync(diagnosticsFile, JSON.stringify({ ts: Date.now(), ...ev }) + '\n');
+    } catch {
+        // best-effort; never let logging disrupt monitoring
+    }
+}
+
 // --- IPC handlers ---
 const registerHandlers = (connector: RendererConnector): void => {
     connector.addRequestHandler(RequestResponseChannels.SPAWN_SESSION, async (_event, data) => {
         let browser: Browser | undefined;
         let sessionUserDataPath: string | undefined;
         try {
+            if (data.recordDiagnostics) enableDiagnostics();
             const url = data.url;
             const selector = data.selector?.trim() || DEFAULT_SELECTOR;
             const eid = data.eid?.trim() || '';
@@ -312,8 +528,9 @@ const registerHandlers = (connector: RendererConnector): void => {
                 userDataDir: sessionUserDataPath,
                 defaultViewport: null,
                 args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
+                    // NOTE: Chromium's sandbox is deliberately left ENABLED. These windows are where
+                    // the UT password is typed, and '--no-sandbox' would strip the process isolation
+                    // around exactly that. It also reads as an automation tell to PerimeterX.
                     '--disable-infobars',
                     '--window-position=0,0',
                     '--ignore-certificate-errors',
@@ -346,7 +563,9 @@ const registerHandlers = (connector: RendererConnector): void => {
                     '--no-pings',
                     '--no-zygote',
                     '--password-store=basic',
-                    '--use-gl=swiftshader',
+                    // '--use-gl=swiftshader' is intentionally absent: forcing software rendering makes
+                    // WebGL report a SwiftShader renderer instead of the real GPU, which is both a lie
+                    // about this machine and a well-known bot signal. Let Chromium use the real GPU.
                     '--use-mock-keychain',
                     '--window-size=1920,1080',
                 ],
@@ -372,7 +591,8 @@ const registerHandlers = (connector: RendererConnector): void => {
             const pid = browserProcess.pid;
 
             activeSessionId = sessionId;
-            sessions.set(sessionId, { id: sessionId, browser, page, pid, selector, status: 'active', armed: false, absentStreak: 0 });
+            sessions.set(sessionId, { id: sessionId, browser, page, pid, selector, status: 'active', armed: false, absentStreak: 0, blocked: false, queueArmed: false, offQueueStreak: 0, lastProgressKey: '' });
+            recordDiag({ sessionId, event: 'spawn' });
 
             // Clean up if the user closes the Chromium window or it crashes: stop monitoring, drop the
             // session, wipe its (auth-cookie-bearing) profile, and let the next queued session through
@@ -471,6 +691,7 @@ const registerHandlers = (connector: RendererConnector): void => {
         session.status = 'processed';
         sessions.set(session.id, session);
         minimizeWindow(session.pid);
+        recordDiag({ sessionId: data.sessionId, event: 'processed' });
         promoteNextSession();
     });
 };

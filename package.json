@@ -1,6 +1,6 @@
 {
   "name": "longhorn-ticket-grabber",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "description": "Desktop app that spawns and monitors parallel queue sessions to improve odds of getting Longhorn student tickets.",
   "author": "Aayush Baniya <thisisaayushbaniya@gmail.com>",
@@ -77,7 +77,8 @@
     "test:e2e": "node tests/electron-e2e.js",
     "test:e2e-multi": "node tests/electron-e2e-multi.js",
     "preflight": "node scripts/preflight-live.js",
-    "preflight:two": "node scripts/preflight-two-profile.js"
+    "preflight:two": "node scripts/preflight-two-profile.js",
+    "diagnostics:analyze": "node scripts/analyze-diagnostics.js"
   },
   "eslintConfig": {
     "extends": [

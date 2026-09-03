@@ -86,12 +86,22 @@ async function readQueueSignals(page, sel) {
         hits.push({ text: context, number });
         if (hits.length >= 12) break;
       }
+      // Anti-bot interstitial: a challenged profile is NOT in the queue, so reporting "no queue
+      // text" without saying why would read as a failed test rather than an uncleared challenge.
+      const challengeRx = /press\s*&?(?:amp;)?\s*hold|access to this page has been denied|confirm you are a human/i;
+      const bodyText = document.body ? document.body.innerText.slice(0, 2000) : '';
+      const challenged =
+        !!document.querySelector('#px-captcha, [id^="px-captcha"], [class*="px-captcha"]') ||
+        challengeRx.test(document.title) ||
+        challengeRx.test(bodyText);
+
       return {
         href: location.href,
         host: location.hostname,
         title: document.title,
         selectorPresent: !!document.querySelector(s),
         bodyLen: document.body ? document.body.innerText.length : 0,
+        challenged,
         hits,
       };
     }, sel)
@@ -125,6 +135,10 @@ function printSnapshot(s) {
   line(`  url       : ${s.href}`);
   line(`  title     : ${s.title}`);
   line(`  selector "${selector}" present? ${s.selectorPresent ? 'YES' : 'NO'}`);
+  if (s.challenged) {
+    line(`  !! ANTI-BOT CHALLENGE ON SCREEN — this profile never reached the queue.`);
+    line(`     Press & Hold in this window by hand, then re-run. (Nothing here clears it for you.)`);
+  }
   line(`  identity cookies:`);
   if (!s.cookies.length) line(`    (none matched)`);
   s.cookies.forEach((c) => line(`    ${c.name} @ ${c.domain} -> ${c.fp}`));
@@ -162,7 +176,13 @@ function verdict(a, b) {
   line(`   profile B: ${bNums.length ? bNums.join(', ') : '(none seen)'}`);
 
   const overlap = aNums.filter((n) => bNums.includes(n));
-  if (!aNums.length || !bNums.length) {
+  if (a.challenged || b.challenged) {
+    line(`\n   VOID — an anti-bot challenge was still on screen (${[a.challenged && 'A', b.challenged && 'B']
+      .filter(Boolean)
+      .join(' and ')}).`);
+    line(`   That profile never entered the queue, so this run proves nothing either way.`);
+    line(`   Clear the Press & Hold by hand in BOTH windows, get BOTH into the waiting room, re-run.`);
+  } else if (!aNums.length || !bNums.length) {
     line(`\n   INCONCLUSIVE — no position numbers on one or both pages.`);
     line(`   Either you are not in the waiting room yet, or the position is not rendered as text.`);
     line(`   Re-run during a real drop, and eyeball both windows yourself.`);
