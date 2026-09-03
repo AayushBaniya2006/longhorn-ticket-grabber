@@ -82,19 +82,25 @@ bundled **queue simulator** and polls the target selector exactly like `main.ts`
 past the queue and asserts the app would fire `SESSION_TRIGGERED`. Fast, deterministic, CI-friendly.
 
 ### 2. Realistic manual test — the queue simulator
-`dummy-page/queue-sim.html` mimics the evenue/Paciolan **waiting room**: it shows a "people ahead of
-you" counter and contains the *real* element the app watches (`#hlLinkToQueueTicket2Text`). When the
-queue clears, that element is removed — exactly what happens on the real site when you advance.
+`dummy-page/queue-sim.html` is styled to look like the real Queue-it **"Texas Athletics Tickets
+Central"** waiting room (Longhorn mark, the same student/non-student copy, a green progress bar with a
+walking figure, a live "Status last updated" clock, and a Queue ID). It exposes its progress through a
+real ARIA progress bar and contains the *element the app watches* (`#hlLinkToQueueTicket2Text`); when
+the queue clears, that element is removed — exactly what happens on the real site when you advance. A
+clear "LOCAL SIMULATION" banner keeps it from being mistaken for the real site.
 
 1. Serve it: `npx serve dummy-page -l 5055`
 2. In the app, set **Ticket page link** to `http://localhost:5055/queue-sim.html` and leave the
    **Queue element to watch** field at its default (`#hlLinkToQueueTicket2Text`).
-3. Spawn a session → **Session Ready**. Watch the counter tick down; when it hits 0 (or click
-   **Advance to the front now**), the element disappears and the app flips to `triggered → processing`.
+   (Add `?preMs=135000` for the pre-queue "NN Minutes NN Seconds" countdown, or `?advanceMs=8000` to
+   auto-release after 8s.)
+3. Spawn a session → **Session Ready**. Watch the progress bar fill; when it reaches the front (or
+   click **Advance to the front now**), the element disappears and the app flips to
+   `triggered → processing`.
 4. Spawn several to watch parallel sessions clear at different times.
 5. While sessions are monitoring, the **"Closest to the front"** leaderboard ranks them by the queue
-   page's own progress. For this simulator that's the **"N people ahead"** count (fewer ahead ranks
-   higher); a page that exposes no progress bar shows **"waiting…"**.
+   page's own progress — for this simulator that's the **progress bar percentage** (higher ranks
+   higher); a page that exposes no progress shows **"waiting…"**.
 
 This is the closest safe stand-in for a real drop — same selector, same disappear-to-trigger behavior.
 

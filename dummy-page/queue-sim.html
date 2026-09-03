@@ -5,84 +5,232 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Longhorns Student Tickets — Waiting Room (SIMULATION)</title>
   <style>
-    :root { --burnt: #BF5700; }
+    :root { --burnt: #BF5700; --qit-green: #3aab5c; --ink: #333; }
     * { box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      margin: 0; background: #f5f5f5; color: #333; text-align: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+      margin: 0; background: #e9e9e9; color: var(--ink);
     }
-    .sim-banner { background: #b00020; color: #fff; padding: 6px; font-size: 13px; font-weight: 600; }
-    header { background: var(--burnt); color: #fff; padding: 24px; }
-    header h1 { margin: 0; font-size: 22px; }
-    main { max-width: 520px; margin: 40px auto; background: #fff; border-radius: 12px;
-           padding: 32px; box-shadow: 0 4px 16px rgba(0,0,0,.08); }
-    .pos { font-size: 40px; font-weight: 800; color: var(--burnt); margin: 8px 0; }
-    #hlLinkToQueueTicket2Text {
-      display: inline-block; margin: 20px 0; padding: 10px 18px; border: 2px solid var(--burnt);
-      border-radius: 8px; color: var(--burnt); text-decoration: none; font-weight: 700;
+    /* Keep this obvious: it must never be mistaken for the real ticketing site. */
+    .sim-banner { background: #b00020; color: #fff; padding: 6px; font-size: 13px; font-weight: 700; text-align: center; }
+
+    /* The white Queue-it card, styled to match the real "Texas Athletics Tickets Central" page. */
+    .card {
+      max-width: 640px; margin: 28px auto; background: #fff; padding: 28px 40px 0;
+      box-shadow: 0 1px 6px rgba(0,0,0,.12); text-align: center;
     }
-    .controls { margin-top: 24px; font-size: 14px; color: #666; }
-    button { background: var(--burnt); color: #fff; border: 0; border-radius: 8px;
-             padding: 10px 16px; font-weight: 700; cursor: pointer; }
+    .logo { font-size: 46px; line-height: 1; margin: 4px 0 10px; }
+    .logo svg { width: 96px; height: auto; display: block; margin: 0 auto; }
+    h1 { font-size: 22px; font-weight: 700; margin: 6px 0 18px; color: #111; }
+    .card p { font-size: 14px; line-height: 1.5; margin: 14px 0; }
+    .warn { color: #9c1c1c; }
+    .whatis { display: inline-block; margin: 18px 0 24px; font-weight: 700; color: #111; text-decoration: underline; cursor: pointer; }
+
+    /* Countdown (pre-queue phase, matches the "02 Minutes 15 Seconds" screen). */
+    #prequeue { display: none; }
+    .countdown { font-size: 30px; font-weight: 700; color: #fff; }
+
+    /* Progress-bar panel (the dark strip with the green fill + walker in the video). */
+    .panel { background: #6f6f6f; margin: 0 -40px; padding: 0; }
+    .qit-progress {
+      background: #4c4c4c; height: 46px; position: relative; overflow: hidden;
+      border-bottom: 1px solid #3d3d3d;
+    }
+    .qit-fill {
+      background: repeating-linear-gradient(90deg, var(--qit-green) 0 14px, #2f9450 14px 16px);
+      height: 100%; width: 0%; transition: width .4s linear;
+    }
+    .qit-walker {
+      position: absolute; top: 50%; transform: translateY(-50%); left: 0%;
+      transition: left .4s linear; font-size: 22px; filter: grayscale(1) brightness(3);
+    }
+    .status { background: #6f6f6f; color: #fff; padding: 26px 12px; font-size: 13px; }
+    .status .dot {
+      display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+      background: #c9d64a; margin-bottom: 12px; box-shadow: 0 0 8px #c9d64a;
+    }
+    .status .updated { font-weight: 700; }
+    .footer {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 40px 16px; margin: 0 -40px; font-size: 11px; color: #777;
+    }
+    .qit-logo { font-weight: 800; color: var(--qit-green); font-size: 15px; }
+    .qit-logo::before { content: "◑ "; }
+
+    #through { display: none; padding: 30px; }
     #through h2 { color: #2e7d32; }
+
+    /* The element the app monitors. On the real Queue-it page there's no such button — it lives on the
+       eVenue site you're released to — so here it's a DOM-only marker (visually hidden), present while
+       you wait and removed when the queue clears. That removal is what the selector-fallback watches. */
+    #hlLinkToQueueTicket2Text {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
+
+    /* Simulation-only controls, clearly separated from the faux Queue-it card. */
+    .sim-controls {
+      max-width: 640px; margin: 0 auto 40px; padding: 12px 16px; background: #fff8e1;
+      border: 1px dashed #b8860b; font-size: 13px; color: #5c4a00; text-align: center;
+    }
+    .sim-controls button { background: var(--burnt); color: #fff; border: 0; border-radius: 6px;
+             padding: 8px 14px; font-weight: 700; cursor: pointer; }
   </style>
 </head>
 <body>
   <div class="sim-banner">⚠️ LOCAL SIMULATION — this is not a real ticketing site</div>
-  <header><h1>🤘 Texas Longhorns — Student Ticket Queue</h1></header>
 
-  <main>
-    <div id="queue">
-      <p>You're in the waiting room. Please keep this window open.</p>
-      <div class="pos" id="pos">1,000</div>
-      <p>people ahead of you</p>
-      <!-- This is the element the app monitors. When you clear the queue it is removed,
-           which is exactly what triggers the app. -->
-      <a id="hlLinkToQueueTicket2Text" href="#">View your queue ticket</a>
-      <div class="controls">
-        <button id="advance">⏩ Advance to the front now</button>
-        <label style="margin-left:12px;">
-          <input type="checkbox" id="auto" checked /> auto-advance
-        </label>
+  <div class="card">
+    <div class="logo" aria-hidden="true">
+      <!-- Generic longhorn mark (not the UT athletics logo) -->
+      <svg viewBox="0 0 120 70" role="img" aria-label="Longhorn">
+        <path fill="#BF5700" d="M60 30c-9 0-16 6-16 15 0 8 7 14 16 14s16-6 16-14c0-9-7-15-16-15z"/>
+        <path fill="#BF5700" d="M60 33C50 20 30 12 8 14c-4 .3-8 2-8 2s10 3 18 10c9 8 20 12 42 9zM60 33c10-13 30-21 52-19 4 .3 8 2 8 2s-10 3-18 10c-9 8-20 12-42 9z"/>
+      </svg>
+    </div>
+    <h1>Texas Athletics Tickets Central</h1>
+
+    <!-- Pre-queue countdown phase (only shown with ?preMs=N). -->
+    <div id="prequeue">
+      <div class="panel">
+        <div class="status" style="padding:34px 12px;">
+          <div class="countdown" id="countdown">00 Minutes 00 Seconds</div>
+        </div>
       </div>
     </div>
 
-    <div id="through" style="display:none;">
-      <h2>✅ It's your turn — tickets available!</h2>
-      <p>The waiting-room element is gone, so the app should now mark this session as triggered.</p>
+    <!-- In-line queue phase. -->
+    <div id="queue">
+      <p>If you&rsquo;re a student, you are now in line for the student ticket claim for
+         Texas Football vs. Texas State.</p>
+      <p class="warn">Due to the high demand for student tickets, they&rsquo;re expected to sell out
+         quickly. Please check back periodically as students are allowed to return their tickets up to
+         3 hours prior to kick off on gameday. All football student tickets are non-transferrable and
+         cannot be resold. Big Ticket holders that violate any of Big Ticket Rules and Regulations will
+         have their Big Ticket privileges revoked for the remainder of the academic year.</p>
+      <p>If you are a non-student, you are now in line to purchase tickets or access your Texas
+         Longhorns account. We appreciate your patience as you wait in the queue. Feel free to check
+         back later this evening as the site volume will decrease when the claim is over.</p>
+      <span class="whatis">What is this?</span>
+
+      <!-- DOM-only marker the app monitors (see CSS note above). -->
+      <a id="hlLinkToQueueTicket2Text" href="#">View your queue ticket</a>
+
+      <div class="panel">
+        <div class="qit-progress">
+          <!-- Real ARIA progressbar so the app's leaderboard scrape reads a live percentage. -->
+          <div class="qit-fill" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+          <span class="qit-walker">🚶</span>
+        </div>
+        <div class="status">
+          <span class="dot"></span><br />
+          <span class="updated">Status last updated: <span id="clock">—</span></span>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span>Queue ID:&nbsp; <span id="qid">—</span></span>
+        <span class="qit-logo">Queue-it</span>
+      </div>
     </div>
-  </main>
+
+    <div id="through">
+      <h2>✅ It&rsquo;s your turn — you&rsquo;re being sent to the site.</h2>
+      <p>The waiting-room element is gone, so the app marks this session as triggered.</p>
+    </div>
+  </div>
+
+  <div class="sim-controls">
+    Simulation controls (not part of the real page):
+    <button id="advance">⏩ Advance to the front now</button>
+    <label style="margin-left:12px;"><input type="checkbox" id="auto" checked /> auto-advance</label>
+  </div>
 
   <script>
-    // ?auto=0 disables auto-advance (used by the automated integration test, which advances manually).
     const params = new URLSearchParams(location.search);
+    // ?auto=0 disables auto-advance (the integration test advances manually via #advance).
     if (params.get('auto') === '0') document.getElementById('auto').checked = false;
 
-    const posEl = document.getElementById('pos');
     const link = document.getElementById('hlLinkToQueueTicket2Text');
     const queue = document.getElementById('queue');
+    const prequeue = document.getElementById('prequeue');
     const through = document.getElementById('through');
-    let pos = 1000;
+    const fill = document.querySelector('.qit-fill');
+    const walker = document.querySelector('.qit-walker');
+    const clockEl = document.getElementById('clock');
 
-    function clearQueue() {
-      // Simulate advancing past the queue: the monitored element disappears from the DOM.
-      if (link.parentNode) link.remove();
-      queue.style.display = 'none';
-      through.style.display = 'block';
+    // A realistic-looking Queue ID (like the real page's "Queue ID: 0d913462-...").
+    const hex = (n) => Array.from({ length: n }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    document.getElementById('qid').textContent =
+      `${hex(8)}-${hex(4)}-${hex(4)}-${hex(4)}-${hex(12)}`;
+
+    // "Status last updated" clock, refreshed like the real page.
+    function tickClock() {
+      const d = new Date();
+      let h = d.getHours(); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+      const p = (n) => String(n).padStart(2, '0');
+      clockEl.textContent = `${h}:${p(d.getMinutes())}:${p(d.getSeconds())} ${ap} CT`;
+    }
+    tickClock();
+    setInterval(tickClock, 1000);
+
+    function setProgress(pct) {
+      pct = Math.max(0, Math.min(100, pct));
+      fill.style.width = pct + '%';
+      fill.setAttribute('aria-valuenow', String(Math.round(pct)));
+      walker.style.left = pct + '%';
     }
 
+    function clearQueue() {
+      // Advancing past the queue: the monitored element disappears from the DOM (what triggers the app).
+      if (link && link.parentNode) link.remove();
+      setProgress(100);
+      queue.style.display = 'none';
+      prequeue.style.display = 'none';
+      through.style.display = 'block';
+    }
     document.getElementById('advance').addEventListener('click', clearQueue);
 
-    // Deterministic auto-advance for the automated e2e test: remove the queue element after ?advanceMs=N.
+    // How long the in-line wait lasts before release. ?advanceMs=N is authoritative (the e2e tests set
+    // it); otherwise auto-advance fills over a default duration; auto=0 waits for a manual advance.
     const advanceMs = parseInt(params.get('advanceMs') || '', 10);
-    if (!isNaN(advanceMs)) setTimeout(clearQueue, advanceMs);
+    const autoOn = () => document.getElementById('auto').checked;
+    const waitMs = !isNaN(advanceMs) ? advanceMs : 45000;
 
-    const timer = setInterval(() => {
-      if (!document.getElementById('auto').checked) return;
-      pos = Math.max(0, pos - Math.ceil(Math.random() * 120));
-      posEl.textContent = pos.toLocaleString();
-      if (pos === 0) { clearInterval(timer); clearQueue(); }
-    }, 800);
+    // Optional pre-queue countdown (?preMs=N) to mirror the video's "NN Minutes NN Seconds" screen.
+    // Off by default so the automated tests aren't slowed.
+    const preMs = parseInt(params.get('preMs') || '0', 10);
+
+    function startInLineQueue() {
+      prequeue.style.display = 'none';
+      queue.style.display = 'block';
+      const start = Date.now();
+      // Deterministic release at exactly advanceMs when set (so e2e timing holds).
+      if (!isNaN(advanceMs)) setTimeout(clearQueue, advanceMs);
+      const progress = setInterval(() => {
+        if (isNaN(advanceMs) && !autoOn()) return; // manual mode: hold until the user advances
+        const pct = ((Date.now() - start) / waitMs) * 100;
+        setProgress(pct);
+        if (pct >= 100) { clearInterval(progress); if (isNaN(advanceMs)) clearQueue(); }
+      }, 400);
+    }
+
+    if (preMs > 0) {
+      queue.style.display = 'none';
+      prequeue.style.display = 'block';
+      const cd = document.getElementById('countdown');
+      const preStart = Date.now();
+      const t = setInterval(() => {
+        const left = Math.max(0, preMs - (Date.now() - preStart));
+        const secs = Math.ceil(left / 1000);
+        const m = Math.floor(secs / 60);
+        const s = secs % 60;
+        cd.textContent = `${String(m).padStart(2, '0')} Minutes ${String(s).padStart(2, '0')} Seconds`;
+        if (left <= 0) { clearInterval(t); startInLineQueue(); }
+      }, 250);
+    } else {
+      startInLineQueue();
+    }
   </script>
 </body>
 </html>
